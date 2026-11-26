@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#4134a5"><title>한국체육학회 참고문헌 검사기</title>
+<link rel="stylesheet" href="styles.css">
+<script defer src="rules/kahperd.js"></script><script defer src="reference-input.js"></script><script defer src="rich-input.js"></script><script defer src="tests.js"></script><script defer src="app.js"></script>
+</head>
+<body>
+<header><div class="frame top"><a class="brand" href="#workspace"><span class="brandmark"><i data-icon="book"></i></span>문헌검토</a>
+<nav aria-label="주 메뉴"><a href="#workspace">검사 작업공간</a><a href="#guide">규정 안내</a><a href="#tests">테스트 결과</a></nav>
+<button class="help" id="help"><i data-icon="help"></i>이용 방법</button></div></header>
+<main class="frame">
+<section class="hero"><div><h1 id="heading">한국체육학회 참고문헌 검사기</h1>
+<p id="intro">한국체육학회 논문투고규정에 따라 참고문헌의 형식을 검사합니다.<br>참고문헌 내용을 변경하는 것이 아니라 저자, 연도, 제목, 학술지명, 권·호, 페이지, DOI 등의 표기 형식을 확인합니다.</p></div>
+<div class="art" aria-hidden="true"><div class="paper back"></div><div class="paper mid"></div><div class="paper front"><b>References</b><em></em><em></em><em></em></div><div class="seal"><i data-icon="check"></i></div></div></section>
+<section id="workspace">
+<div class="layout"><section class="panel editor">
+<div class="modebar"><button id="refMode" aria-pressed="true"><i data-icon="papers"></i>참고문헌 검사</button><button id="citeMode" aria-pressed="false"><i data-icon="quote"></i>본문 인용 검사</button></div>
+<div class="editorbody"><div class="fields"><label>학회 선택<select id="society"><option>한국체육학회</option><option disabled>다른 학회 · 추후 지원 예정</option></select></label><label id="typeLabel">문헌 유형<select id="type"></select></label></div>
+<div class="fields" id="context" hidden><label>저자 수<select id="count"><option value="">알 수 없음</option><option value="1">1인</option><option value="2">2인</option><option value="3">3인</option><option value="4">4인</option><option value="5">5인</option><option value="6">6인 이상</option></select></label>
+<label>인용 차례<select id="occurrence"><option value="">알 수 없음</option><option value="first">첫 인용</option><option value="repeat">반복 인용</option></select></label></div>
+<div class="input-heading"><label id="inputTitle" for="entry">참고문헌 입력</label><button class="small" id="sample"><i data-icon="file"></i>예시 불러오기</button></div>
+<div class="inputbox"><div id="entry" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="inputTitle" aria-describedby="hint formatNotice" spellcheck="false" data-placeholder="검사할 참고문헌 목록을 붙여넣으세요."></div><textarea hidden id="citeEntry" spellcheck="false" aria-labelledby="inputTitle" aria-describedby="hint" placeholder="예: (홍길동, 2019) 또는 Gide &amp; Rist(1994)"></textarea>
+<div class="inputfoot"><span id="lineCount">0개 문헌</span><button id="clear" disabled><i data-icon="x"></i>비우기</button></div></div>
+<p id="joinNotice" class="muted" role="status" hidden></p>
+<p id="formatNotice" class="muted" role="status" hidden></p>
+<div class="actionrow"><span id="hint"><i data-icon="info"></i><span>줄바꿈은 자동으로 묶습니다. 문헌 사이에 빈 줄을 넣으면 구분됩니다.</span></span><button class="primary" id="inspect"><i data-icon="scan"></i><span>참고문헌 검사하기</span></button></div></div></section>
+<aside><section class="panel example"><div class="aside-heading"><span class="iconbox"><i data-icon="book"></i></span><h2>표기 예시</h2></div><div class="examplebar"><strong id="exampleType">학술지 논문</strong><div class="switch"><button id="ko" aria-pressed="true">국문</button><button id="en" aria-pressed="false">영문</button></div></div>
+<blockquote id="example"></blockquote><a class="textlink" href="#guide">규정 자세히 보기<i data-icon="external"></i></a></section>
+<section class="panel legend"><div class="aside-heading"><span class="iconbox gray"><i data-icon="list"></i></span><h2>판정 안내</h2></div>
+<div class="legendrow"><span class="pill good">정상</span><span>형식상 발견된 문제 없음</span></div>
+<div class="legendrow"><span class="pill bad">수정 필요</span><span>명확한 형식 오류 발견</span></div>
+<div class="legendrow"><span class="pill warn">확인 필요</span><span>원자료 또는 서식 확인</span></div></section></aside></div>
+<section id="results" tabindex="-1" hidden></section></section>
+<section id="guide" hidden></section><section id="tests" hidden></section>
+</main><footer><div class="frame"><span><i data-icon="book"></i>문헌검토</span><span>한국체육학회 규정 기반 참고문헌 검사기</span></div></footer>
+<dialog id="modal"><div class="modalhead"><h2 id="modalTitle"></h2><button id="close" aria-label="닫기"><i data-icon="x"></i></button></div><div id="modalBody"></div></dialog>
+<div id="toast" role="status" aria-live="polite"></div></body></html>
