@@ -16,7 +16,14 @@ const ReferenceInput = (() => {
 
   function startsEntry(line) {
     const m=year.exec(line);
-    return !!m && authors(line.slice(0,m.index));
+    if(!m)return false;
+    const prefix=line.slice(0,m.index);
+    if(authors(prefix))return true;
+    // Tolerate one trailing comma only for a plausible Korean author list
+    // followed by a parenthesized date. Keep the actual punctuation for review.
+    const names=prefix.trimEnd().replace(/[,，]$/,'').trimEnd();
+    return names!==prefix.trimEnd() && m[0].startsWith('(') && korean.test(names) &&
+      !/(?:학회지|학회|논문지|학술지|저널)$/.test(names);
   }
 
   function authorFragment(line) {

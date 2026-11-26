@@ -21,7 +21,56 @@ const RichInput=(()=>{
     }
     return {bold,italic};
   }
-  function read(root,editor=false){
+  // Inspect embedded CSS in a detached stylesheet. Never attach clipboard
+  // styles, fetch linked sheets, or insert clipboard elements in the editor.
+  function clipboardRules(root){
+    const rules=[];
+    for(const element of root.querySelectorAll('style')){
+      if(element.media && element.media.trim()!=='all')continue;
+      if(element.type && element.type!=='text/css')continue;
+      if(typeof CSSStyleSheet==='undefined'||!CSSStyleSheet.prototype.replaceSync)break;
+      const sheet=new CSSStyleSheet();
+      sheet.replaceSync(element.textContent);
+      for(const rule of sheet.cssRules){
+        if(!rule.selectorText || !rule.style || !(rule.style.fontWeight||rule.style.fontStyle))continue;
+        const selectors=rule.selectorText.split(',').map(s=>s.trim());
+        // Word and Docs commonly use .class, tag.class, or a tag selector.
+        if(!selectors.every(s=>s && /^(?:[a-z][\w-]*)?(?:\.[a-z_][\w-]*)*$/i.test(s))){
+          // A competing complex selector can make the cascade ambiguous.
+          rules.push({selector:rule.selectorText,style:rule.style,uncertain:true});
+          continue;
+        }
+        for(const selector of selectors){
+          const specificity=(selector.match(/\./g)||[]).length*10+Number(selector[0]!=='.');
+          rules.push({selector,specificity,style:rule.style});
+        }
+      }
+    }
+    return rules;
+  }
+  function fontStyle(node,rules){
+    if(!rules.length)return node.style;
+    const result={}, ranks={};
+    function apply(style,priority,uncertain=false){
+      if(!style)return;
+      for(const key of ['font-weight','font-style']){
+        const value=style.getPropertyValue(key);
+        if(!value)continue;
+        const rank=priority+(style.getPropertyPriority(key)==='important'?1e6:0);
+        if(rank<(ranks[key]??-1))continue;
+        ranks[key]=rank;
+        result[key==='font-weight'?'fontWeight':'fontStyle']=uncertain?'unknown':value;
+      }
+    }
+    for(const rule of rules){
+      let matches;
+      try{matches=node.matches(rule.selector);}catch{matches=rule.uncertain;}
+      if(matches)apply(rule.style,rule.uncertain?9e4:rule.specificity,rule.uncertain);
+    }
+    apply(node.style,1e5);
+    return result;
+  }
+  function read(root,editor=false,rules=[]){
     const pieces=[],styles=[];let last='',blockEnded=false;
     function append(s,style=unknown){
       if(!s)return;
@@ -42,9 +91,8 @@ const RichInput=(()=>{
       if(tag==='BR'){if(blockEnded)boundary();append('\n');return;}
       const block=blocks.has(tag);
       if(block)boundary();
-      const s=n.style;
-      const inherited=!editor && n.hasAttribute('class')?unknown:parent;
-      let style=properties(tag,s?.fontWeight,s?.fontStyle,inherited);
+      const s=fontStyle(n,rules);
+      let style=properties(tag,s?.fontWeight,s?.fontStyle,parent);
       if(editor && n.hasAttribute('data-paste-style')){
         const decode=c=>c==='1'?true:c==='0'?false:null;
         const code=n.getAttribute('data-paste-style');
@@ -64,12 +112,15 @@ const RichInput=(()=>{
     const text=plain.replace(/\r\n?/g,'\n'),styles=[];
     let j=0;
     for(let i=0;i<text.length;i++){
-      if(/\s/.test(text[i])){styles.push(unknown);continue;}
-      while(j<rich.text.length && /\s/.test(rich.text[j]))j++;
+      if(/[\s\u200b]/.test(text[i])){
+        styles.push(text[i]===rich.text[j]?rich.styles[j++]:unknown);
+        continue;
+      }
+      while(j<rich.text.length && /[\s\u200b]/.test(rich.text[j]))j++;
       if(text[i]!==rich.text[j])return {text,styles:[]};
       styles.push(rich.styles[j++]);
     }
-    if(rich.text.slice(j).trim())return {text,styles:[]};
+    if(/[^\s\u200b]/.test(rich.text.slice(j)))return {text,styles:[]};
     return {text,styles};
   }
   function clipboard(data){
@@ -77,7 +128,7 @@ const RichInput=(()=>{
     if(!html)return {text:plain.replace(/\r\n?/g,'\n'),styles:[]};
     const template=document.createElement('template');
     template.innerHTML=html;
-    return align(plain,read(template.content));
+    return align(plain,read(template.content,false,clipboardRules(template.content)));
   }
   function fragment(snapshot,start=0,end=snapshot.text.length){
     const root=document.createDocumentFragment();

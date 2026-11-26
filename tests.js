@@ -254,3 +254,65 @@ if(typeof module!=='undefined') module.exports=ValidationSuite;
   }});
 }
 
+{
+  const {cases,k,ref}=ValidationSuite;
+  const parser=typeof require==='function'?require('./reference-input.js'):ReferenceInput;
+  const first='강다희, 임금정, 김현우(2024). 노년층의 온라인 스포츠 경기 관람권 구매 의도 분석: 확장된 기술수용모델을 중심으로. 한국스포츠학회, 22(1), 23-34.';
+  const second='김가은, (2024). IPA 분석을 통한 프로스포츠 관람 제약 요인 개선 방안 연구. 한국콘텐츠학회논문지, 24(9), 361-379';
+  const fixed=second.replace('김가은, ','김가은')+'.';
+  function division(name,input,expected){
+    cases.push({name,input,expected:expected.join('\n'),run(){
+      const lines=parser.entries(input,'ref').map(g=>g.text);
+      return {pass:JSON.stringify(lines)===JSON.stringify(expected),actual:lines.join('\n')};
+    }});
+  }
+  division('실제 제보 · 마지막 저자 뒤 쉼표가 있어도 두 문헌',first+'\n'+second,[first,second]);
+  const continuation='한국스포츠학회, 22(1), 23-34.';
+  const heading=first.slice(0,first.indexOf(continuation)).trimEnd();
+  division('학술지·권호가 이어지는 줄 보존',heading+'\n'+continuation+'\n'+second,[first,second]);
+  division('제목 안의 연도는 연속 줄',heading+'\n국내 관람 추이(2020)와 비교. '+continuation,[heading+' 국내 관람 추이(2020)와 비교. '+continuation]);
+  division('학술지명과 연도가 이어지는 줄 보존',heading+'\n학술지, (2024). 부록',[heading+' 학술지, (2024). 부록']);
+  division('줄이 나뉜 복수 저자와 연도 앞 쉼표',first+'\n임금정,\n김가은, (2024). 연구.',[first,'임금정, 김가은, (2024). 연구.']);
+  ref('국문 단독 저자 끝 쉼표와 페이지 마침표 동시 교정',second,'auto',k.error,fixed,['ko-author-year-comma','page-stop']);
+  ref('국문 복수 저자 구분과 끝 쉼표 동시 교정',second.replace('김가은, ','강다희,김가은 ,  '),'auto',k.error,fixed.replace('김가은','강다희, 김가은'),['ko-author-comma','ko-author-year-comma']);
+  ref('국문 연도 앞 공백만 있는 경우',fixed.replace('김가은(','김가은  ('),'auto',k.error,fixed,['year-position']);
+  ref('교정한 국문 저자 표기는 다시 수정하지 않음',fixed,'auto',k.review,fixed,['journal-format']);
+}
+
+if(typeof document!=='undefined'){
+  const {cases,k}=ValidationSuite;
+  const ko=['김가은(2024). 관람 연구. ','한국콘텐츠학회논문지','24'];
+  const en=['Smith, J. (2024). Sport participation. ','Journal of Sport','24'];
+  function pasteCase(name,parts,markup,key,state,visible){
+    const [prefix,journal,volume]=parts;
+    const input=prefix+journal+', '+volume+'(9), 361-379.';
+    const field=journal+', '+volume;
+    cases.push({name,input,expected:state,run(){
+      const editor=document.createElement('div');
+      editor.contentEditable='true';
+      document.body.append(editor);
+      try{
+        const html=markup?markup(prefix,field)+'(9), 361-379.':'';
+        const clip=RichInput.clipboard({getData:type=>type==='text/html'?html:input});
+        RichInput.insert(editor,clip);
+        const snapshot=RichInput.read(editor,true);
+        const group=ReferenceInput.entries(snapshot.text,'ref',snapshot.styles)[0];
+        const checks=k.reference(group.text,'journal',group.styles).formatChecks;
+        const fieldSpan=[...editor.children].find(n=>n.textContent.includes(journal.split(' ')[0]));
+        const rendered=fieldSpan?getComputedStyle(fieldSpan)[key]:'서식 요소 없음';
+        const actual=checks.map(c=>c.status).join(' / ');
+        return {pass:snapshot.text===input && actual===state+' / '+state && rendered===visible,actual:actual+' · '+rendered};
+      }finally{editor.remove();}
+    }});
+  }
+  pasteCase('브라우저 붙여넣기 · Word 클래스의 굵게 표시·검사',ko,(p,f)=>'<style>span.MsoEmphasis{font-weight:700}</style>'+p+'<span class="MsoEmphasis">'+f+'</span>','fontWeight',k.ok,'700');
+  pasteCase('브라우저 붙여넣기 · Docs 클래스의 이탤릭 표시·검사',en,(p,f)=>'<style>.c2{font-style:italic}</style><b style="font-weight:normal">'+p+'<span class="c2">'+f+'</span></b>','fontStyle',k.ok,'italic');
+  pasteCase('브라우저 붙여넣기 · 클래스가 있는 자식에 강조 상속',ko,(p,f)=>p+'<strong><span class="wordlang">'+f+'</span></strong>','fontWeight',k.ok,'700');
+  pasteCase('브라우저 붙여넣기 · 명시적 일반체 우선',ko,(p,f)=>'<style>.w{font-weight:bold}</style>'+p+'<span class="w" style="font-weight:400">'+f+'</span>','fontWeight',k.error,'400');
+  pasteCase('브라우저 붙여넣기 · 중요한 클래스 선언 우선',en,(p,f)=>'<style>.c{font-style:italic!important}</style>'+p+'<span class="c" style="font-style:normal">'+f+'</span>','fontStyle',k.ok,'italic');
+  pasteCase('브라우저 붙여넣기 · HTML에만 있는 폭 없는 공백',en,(p,f)=>p+'\u200b<em>'+f+'</em>','fontStyle',k.ok,'italic');
+  pasteCase('브라우저 붙여넣기 · 복합 선택자 충돌은 확인 필요',ko,(p,f)=>'<style>.w{font-weight:bold}div .w{font-weight:normal}</style>'+p+'<div><span class="w">'+f+'</span></div>','fontWeight',k.review,'400');
+  pasteCase('브라우저 붙여넣기 · 순수 텍스트는 서식 확인 필요',en,null,'fontStyle',k.review,'normal');
+}
+
+

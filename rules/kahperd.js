@@ -96,10 +96,14 @@ const Kahperd = (() => {
     const a=r.author, pos=r.original.indexOf(a);
     const flag=(id,msg,ref='author')=>note(r,id,review,ref,pos,pos+a.length,msg,sourcePrompt);
     if(/[가-힣]/.test(a)) {
-      if(/^[가-힣]{2,6}(?:\s*,\s*[가-힣]{2,6})*$/.test(a)){
-        for(const gap of a.matchAll(/\s*,\s*/g))
+      const names=a.replace(/\s*[,，]$/,'');
+      if(/^[가-힣]{2,6}(?:\s*,\s*[가-힣]{2,6})*$/.test(names)){
+        for(const gap of names.matchAll(/\s*,\s*/g))
           separator(r,'ko-author-comma','author',pos+gap.index,pos+gap.index+gap[0].length,', ','국문 저자 사이의 쉼표와 공백을 확인하세요.','앞 저자명에 쉼표를 붙이고 다음 저자까지 한 칸 띕니다.');
-        separator(r,'year-position','year',pos+a.length,yearStart,'','국문 저자와 연도 괄호 사이에 공백이 있습니다.','국문 학술지 예시처럼 마지막 저자명에 연도 괄호를 붙입니다.');
+        if(names!==a){
+          note(r,'ko-author-year-comma',error,'author',pos+names.length,yearStart,'마지막 국문 저자 이름과 연도 사이에 불필요한 쉼표가 있습니다.','쉼표와 공백을 지우고 마지막 저자명에 연도 괄호를 붙입니다.','');
+          r.author=names;
+        }else separator(r,'year-position','year',pos+a.length,yearStart,'','국문 저자와 연도 괄호 사이에 공백이 있습니다.','국문 학술지 예시처럼 마지막 저자명에 연도 괄호를 붙입니다.');
       }
       if(/(?:\s등|외\s*\d*\s*인?|et al\.)$/.test(a)) flag('ko-authors','국문 저자명을 모두 기재했는지 확인하세요.');
       else if(/^[가-힣]{2,5}(?:\s+[가-힣]{2,5})+$/.test(a)) flag('ko-separator','여러 저자의 이름이라면 쉼표로 구분하세요.');
