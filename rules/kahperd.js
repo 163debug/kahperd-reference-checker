@@ -9,8 +9,8 @@ const Kahperd = (() => {
     titleSeparator:'제11조 제1항 · 논문 제목과 학술지명 표기 예시', title:'제11조 제1항 · 영문 논문 제목', journal:'제11조 제1항 · 학술지명',
     volume:'제11조 제1항 · 권·호·페이지', doi:'제11조 · DOI 표기 예시',
     long:'제11조 · 외국어 저자 8인 이상 표기 예시', order:'제11조 · 참고문헌 배열',
-    book:'제11조 · 단행본', thesis:'제11조 · 학위논문', news:'제11조 · 신문기사',
-    conference:'제11조 · 학술대회·심포지엄 자료', report:'제11조 · 보고서',
+    book:'제11조 제2항 · 단행본', thesis:'제11조 제3항 · 학위논문', news:'제11조 제4항 · 신문기사',
+    conference:'제11조 제5항 · 학술대회·심포지엄 자료', report:'제11조 제6항 · 보고서',
     type:'제11조 · 문헌 유형별 작성 예시', citation:'제10조 · 본문 저자·연도 표기',
     count:'제10조 · 저자 수와 첫 인용·반복 인용', multiple:'제10조 · 동시 인용 및 동일 저자 복수 문헌'
   };
@@ -28,6 +28,11 @@ const Kahperd = (() => {
     const item={id,level,ref:rules[ref],start,end,message,advice};
     r.issues.push(item);
     if (replacement !== undefined) r.edits.push({start,end,replacement});
+    return item;
+  }
+  function missing(r,id,ref,position,label){
+    const issue=note(r,id,error,ref,position,position,label+' 누락',label+'에 들어갈 값은 원자료에서 확인해 직접 입력하세요.');
+    issue.manual=true;
   }
   function finish(r) {
     let cursor=0, result='';
@@ -49,6 +54,12 @@ const Kahperd = (() => {
     const brokenStart=b?b.index+b[0].indexOf(b[1]):-1;
     const useBroken=b && (!m || brokenStart<m.index) && !normalYear.test(b[1]);
     if(!m && !useBroken) {
+      const empty=/^([^()]+)\(\s*\)\.\s*/.exec(s);
+      if(empty && (inputParser.personalList(empty[1].trim()) || /^[\p{L}’'-]+,\s*(?:\p{Lu}\.\s*)+$/u.test(empty[1]))){
+        r.author=empty[1].trim();
+        missing(r,'year-empty','year',empty[1].length+1,'출판연도');
+        return {body:empty[0].length,yearStart:empty[1].length,date:'',month:''};
+      }
       note(r,'year-unknown',review,'parsing',0,s.length,'저자와 출판연도의 경계를 확인하기 어렵습니다.',sourcePrompt);
       return null;
     }
@@ -65,7 +76,7 @@ const Kahperd = (() => {
       note(r,'year-unknown',review,'parsing',pos,pos+token.length,'저자와 연도 사이의 경계를 원자료에서 확인하세요.',sourcePrompt);
       return null;
     }
-    if(!r.author) note(r,'author-empty',review,'type',0,pos,'저자 정보가 비어 있습니다.',sourcePrompt);
+    if(!r.author) missing(r,'author-empty','type',pos,'저자');
     if(!useBroken && /^\(\s|\s\)$/.test(token)){
       separator(r,'year-brackets','year',pos,pos+token.length,'('+token.slice(1,-1).trim()+')','연도 괄호 안쪽의 공백을 확인하세요.','괄호 안쪽의 불필요한 공백을 제거합니다.');
     }
@@ -164,13 +175,14 @@ const Kahperd = (() => {
     const partial=/(?:,\s*|\s+)\d+(?:\s*\([^)]*\))?(?:,\s*[\w–—~-]+)?\.?\s*$/.exec(body);
     const stop=numeric?.index??partial?.index??body.length;
     const heading=body.slice(0,stop);
+    const emptyJournal=numeric && /[.?!]$/.test(heading) && /^\s+,/.test(numeric[1]) && !/[.?!]\s+\S/.test(heading);
     let split=heading.match(/^([\s\S]+[.?!])\s+([^.!?]+)$/);
     const field=(id,ref,group,value,message,advice)=>{
       const [from,to]=numeric.indices[group];
       separator(r,id,ref,start+from,start+to,value,message,advice);
     };
     if(numeric){
-      field('journal-comma','journal',1,', ','학술지명 뒤의 쉼표 또는 공백을 확인하세요.','학술지명에 쉼표를 붙이고 권 번호 앞에서 한 칸 띕니다.');
+      if(!emptyJournal)field('journal-comma','journal',1,', ','학술지명 뒤의 쉼표 또는 공백을 확인하세요.','학술지명에 쉼표를 붙이고 권 번호 앞에서 한 칸 띕니다.');
       field('volume-comma','volume',4,', ','권·호 뒤의 쉼표 또는 공백을 확인하세요.','페이지 앞에 쉼표와 한 칸의 공백을 씁니다.');
       if(/[–—]/.test(numeric[6])){
         const [p,q]=numeric.indices[6];
@@ -180,7 +192,11 @@ const Kahperd = (() => {
       if(r.doiStart!==undefined)
         separator(r,'doi-space','doi',end,r.doiStart,' ','페이지와 DOI 사이의 공백을 확인하세요.','페이지의 마침표 다음에 한 칸 띄우고 DOI를 씁니다.');
     }
-    if(!numeric?.[3])
+    if(!numeric && /,\s*\d+\(\d+\)\s*[,;]?\s*\.?\s*$/.test(body))
+      missing(r,'journal-pages','volume',end,'수록 페이지');
+    else if(!numeric && /[.?!]\s+[^,]+,\s*,?\s*\d+\s*[-–—~]\s*\d+\.?$/.test(body))
+      missing(r,'journal-volume','volume',start+body.lastIndexOf(',')+1,'권 번호');
+    else if(!numeric?.[3])
       note(r,'volume-incomplete',review,'volume',start+stop,end,'권·호·페이지를 모두 식별하기 어렵습니다.','원자료에서 권, 호와 시작·끝 페이지를 확인하세요. 없는 숫자는 추가하지 않습니다.');
 
     // A pasted style transition can identify a journal name even without its delimiter.
@@ -203,7 +219,9 @@ const Kahperd = (() => {
       const from=start+split[1].length, to=start+heading.lastIndexOf(split[2]);
       separator(r,'title-space','titleSeparator',from,to,' ','제목과 학술지명 사이의 공백을 확인하세요.','제목 뒤에서 한 칸 띄우고 학술지명을 씁니다.');
     }
-    if(!split)note(r,'title-boundary',review,'parsing',start,start+stop,'제목 뒤의 마침표와 학술지명이 시작되는 위치를 확인하세요.','제목과 학술지의 경계를 원자료에서 확인하세요. 경계가 불명확해 마침표를 자동으로 삽입하지 않습니다.');
+    if(emptyJournal)
+      missing(r,'journal-name','journal',start+stop,'학술지명');
+    else if(!split)note(r,'title-boundary',review,'parsing',start,start+stop,'제목 뒤의 마침표와 학술지명이 시작되는 위치를 확인하세요.','제목과 학술지의 경계를 원자료에서 확인하세요. 경계가 불명확해 마침표를 자동으로 삽입하지 않습니다.');
     if(split && /^[A-Za-z]/.test(split[1])) {
       const title=split[1], suspicious=/^[a-z]|:\s*[a-z]|(?<=\s)[A-Z][a-z]+/.exec(title);
       if(suspicious) note(r,'title-case',review,'title',start,start+title.length,'영문 제목의 대소문자를 확인하세요.','제목·하위제목의 첫 글자와 고유명사를 원자료와 대조하세요.');
@@ -231,7 +249,8 @@ const Kahperd = (() => {
     if(journalTail.exec(body)?.[3] || /,\s*\d+\s*\(\d+\)\s*,\s*\d+/.test(body) ||
        /[.!?]\s+[^,.]+,\s*\d+,\s*\d+\s*[-–—]\s*\d+\.?\s*$/.test(body)) return 'journal';
     if(/세미나|심포지엄|학술대회|poster session|presented at|symposium|proceedings/i.test(body)) return 'conference';
-    if(date?.month && /(?:\d+일|[a-z]+\s+\d+)/i.test(date.month)) return 'news';
+    if(date?.month && /(?:\d+일|[a-z]+\s+\d+)/i.test(date.month) ||
+       /(?:일보|신문|Daily News|Times|Post|Journal),\s*pp?\.\s*[A-Z]?\d/i.test(body)) return 'news';
     if(/,\s*\d+\s*\(\d+\)|(?:학회지|저널|journal|review).*,\s*\d/i.test(body)) return 'journal';
     if(/보고서|연구소\.?$|\breport\b|\bcommittee\.?$/i.test(body)) return 'report';
     if(/(?:대학)?출판[사부]|press\.?$|publishers?\.?$|\(편\)|\(Eds?\.?\)/i.test(body)) return 'book';
@@ -248,7 +267,7 @@ const Kahperd = (() => {
     return finish(r);
   }
   // Additional checks are registered below, independently of the interface.
-  return {name:'한국체육학회',types,rules,ok,error,review,reference,extraTypes,record,note,finish,sourcePrompt};
+  return {name:'한국체육학회',types,rules,ok,error,review,reference,extraTypes,record,note,missing,finish,sourcePrompt};
 })();
 if(typeof module!=='undefined') module.exports=Kahperd;
 
@@ -267,62 +286,143 @@ Kahperd.sortReferences = function sortReferences(records) {
 };
 
 Object.assign(Kahperd.extraTypes, (() => {
-  const {note,review,sourcePrompt}=Kahperd;
+  const {note,missing,review,sourcePrompt}=Kahperd;
+  const hasValue=text=>/[\p{L}\p{N}]/u.test(text);
   function check(r,start,end,id,message,advice=sourcePrompt) {
     note(r,id,review,r.type,start,end,message,advice);
   }
-  function cityPublisher(text) {
-    // Require the city to follow the title boundary; a subtitle colon is insufficient.
-    return /[.?!]\s+[^:./\n]+:\s*[^:/\n]+\S\.?\s*$/.test(text);
+  // Read the imprint after a title boundary. A colon inside the title is not an imprint.
+  function imprint(body) {
+    return /[.?!]\s+([^:.!?/]*):\s*([^:/]*)$/.exec(body);
   }
-  function online(text) { return /https?:\/\/[^\s/]+/i.test(text); }
-  function book(r,start,end) {
-    const body=r.original.slice(start,end);
-    if(!cityPublisher(body)) check(r,start,end,'publisher','책 제목 뒤 출판도시와 출판사를 확인하세요.','원자료에 따라 출판도시: 출판사 형태로 기재하세요.');
-    if(/\(Eds?\)\.?$/i.test(r.author)) check(r,0,start,'editor','편집자 약어의 마침표를 확인하세요.','제시된 규정과 예시의 (Eds.) 및 (Eds). 표기가 달라 원문을 유지했습니다.');
-    const titleEnd=body.lastIndexOf('. ');
-    check(r,start,titleEnd>0?start+titleEnd:end,'book-format','서식 확인 필요','국문 책 제목은 굵게, 영문은 이탤릭으로 표시하세요. 재판 이상이면 제목 뒤 판수도 원자료와 대조하세요.');
-  }
-  function thesis(r,start,end) {
-    const b=r.original.slice(start,end);
-    const degree=/석사\s*학위\s*논문|박사\s*학위\s*논문|master['’]s thesis|doctoral dissertation|doctoral thesis/i.exec(b);
-    if(!degree && !online(b) && cityPublisher(b)){
-      check(r,start,end,'published-thesis','출간 학위논문의 출판 정보를 확인하세요.','출간 학위논문 예시는 제목 뒤에 출판도시와 출판사를 적습니다. 출간 여부를 원자료와 대조하세요.');
+  const cityOnly=/^(?:서울|부산|대구|인천|대전|광주|울산|세종|Seoul)$/i;
+  function publication(r,start,end,city,publisher) {
+    const body=r.original.slice(start,end), pair=imprint(body);
+    if(pair){
+      if(!hasValue(body.slice(0,pair.index)))missing(r,'publication-title',r.type,start,r.type==='book'?'책 제목':r.type==='report'?'보고서 제목':r.type==='thesis'?'학위논문 제목':'자료집 제목');
+      const colon=start+body.lastIndexOf(':');
+      if(!hasValue(pair[1]))missing(r,'publication-city',r.type,colon,city);
+      if(!hasValue(pair[2]))missing(r,'publication-publisher',r.type,end,publisher);
       return;
     }
-    if(!degree) check(r,start,end,'degree','석·박사 학위논문의 종류를 확인하세요.');
-    if(!degree || !b.slice(0,degree.index).replace(/[.(\s]|미간행|unpublished/gi,'')) check(r,start,end,'thesis-title','학위논문 제목을 확인하세요.');
-    const after=degree?b.slice(degree.index+degree[0].length):b;
-    const institution=/(?:대학(?:교|원)?|university|institute|college|school)/i.exec(after);
-    if(!institution) check(r,start,end,'school','학위 수여 대학 또는 대학원을 확인하세요.');
-    if(!institution || !/,\s*[^(),.\s][^(),.]*[.)]/.test(after.slice(institution.index).split(/retrieved|https?:/i)[0])) check(r,start,end,'region','학위 수여 기관의 소재지를 확인하세요.');
-    if(/retrieved from/i.test(b) && !online(b)) check(r,start,end,'retrieval','온라인 학위논문의 URL을 확인하세요.');
-    if(online(b) && !/retrieved from\s+https?:/i.test(b)) check(r,start,end,'thesis-online','온라인 학위논문의 출처 표기를 확인하세요.','제공된 예시에서 URL 앞에 Retrieved from을 사용합니다.');
+    const sourceOnly=/^([^:.!?]+):\s*(.+?)\.?$/.exec(body);
+    if(sourceOnly && cityOnly.test(sourceOnly[1].trim()) && /(?:출판사|출판부|연구소|University Press)$/i.test(sourceOnly[2])){
+      missing(r,'publication-title',r.type,start,r.type==='report'?'보고서 제목':'책 제목');
+      return;
+    }
+    const tail=body.match(/[.?!]\s+([^:.!?]+)\.?\s*$/)?.[1].trim();
+    if(tail && /^(?:[가-힣]+(?:출판사|출판부|연구소)|[가-힣]+대학교\s+[가-힣]+(?:출판부|연구소)|[A-Za-z'-]+ University Press)$/.test(tail)){
+      missing(r,'publication-city',r.type,start+body.lastIndexOf(tail),city);
+    }else if(tail && cityOnly.test(tail)){
+      missing(r,'publication-publisher',r.type,end,publisher);
+    }else if(!tail && /^[^:.,!?/;]+[.?!]?$/.test(body) && !/\s[-/]\s/.test(body) && !/(?:출판[사부]|연구소|press|publishers?)\.?$/i.test(body)){
+      missing(r,'publication-source',r.type,end,r.type==='report'?'발행지·발행기관 또는 온라인 출처':city+'·'+publisher);
+    }else{
+      check(r,start,end,'publisher',city+'와 '+publisher+'의 경계를 확인하세요.');
+    }
+  }
+  function source(body){
+    const mark=/\bretrieved\s+from\b/i.exec(body), url=/https?:\/\/[^\s/]+/i.exec(body);
+    const locator=url || /(?:https?:\/\/|\bwww\.)/i.exec(body);
+    const cut=mark?.index??locator?.index??body.length;
+    return {online:!!(mark||locator),url:!!url,cut,empty:!!mark && !hasValue(body.slice(mark.index+mark[0].length))};
+  }
+  function linkCheck(r,start,end,src){
+    if(src.empty)missing(r,'retrieval',r.type,end,'온라인 출처 URL');
+    else if(src.online && !src.url)check(r,start+src.cut,end,'retrieval','온라인 출처가 URL인지 확인하세요.');
+  }
+  function book(r,start,end) {
+    publication(r,start,end,'출판도시','출판사');
+    if(/\(Eds?\)\.?$/i.test(r.author)) check(r,0,start,'editor','편집자 약어의 마침표를 확인하세요.','제시된 규정과 예시의 (Eds.) 및 (Eds). 표기가 달라 원문을 유지했습니다.');
+    check(r,start,end,'book-format','서식 확인 필요','국문 책 제목은 굵게, 영문은 이탤릭으로 표시하세요. 재판 이상이면 제목 뒤 판수도 원자료와 대조하세요.');
+  }
+  function thesis(r,start,end) {
+    const b=r.original.slice(start,end),src=source(b),text=b.slice(0,src.cut);
+    const degree=/(?:석사|박사)\s*학위\s*논문|master['’]s thesis|doctoral dissertation|doctoral thesis|미간행\s*학위논문/i.exec(text);
+    linkCheck(r,start,end,src);
+    if(!degree && !src.online && imprint(text)){
+      publication(r,start,end,'출판도시','출판사');
+      check(r,start,end,'published-thesis','출간 학위논문의 출판 정보를 확인하세요.','출간 여부를 원자료와 대조하세요.');
+      return;
+    }
+    if(!degree){
+      check(r,start,end,'degree','학위논문의 유형을 확인하세요.');
+      return;
+    }
+    if(degree[0].startsWith('미간행'))missing(r,'degree',r.type,start+degree.index,'석·박사 학위 구분');
+    if(!hasValue(text.slice(0,degree.index).replace(/미간행|unpublished/gi,'')))missing(r,'thesis-title',r.type,start,'학위논문 제목');
+    const suffix=text.slice(degree.index+degree[0].length);
+    const fields=suffix.replace(/^\s*\)?\s*[.,]?\s*/,'').replace(/[.)\s]+$/,'').split(/[,，]/);
+    const institution=fields.shift().trim(), location=fields.join(',').trim();
+    const hasSchool=/(?:대학(?:교|원)?|university|institute|college|school)/i.test(institution);
+    const onlyLocation=!fields.length && cityOnly.test(institution);
+    if(onlyLocation || !hasValue(institution))missing(r,'school',r.type,start+degree.index+degree[0].length,'학위수여기관');
+    else if(!hasSchool)check(r,start,end,'school','입력한 명칭이 학위수여기관인지 확인하세요.');
+    if(!onlyLocation && !hasValue(location)){
+      if(!hasValue(institution) || fields.length || /(?:대학(?:교|원)?|university|institute|college|school)$/i.test(institution)){
+        missing(r,'region',r.type,start+src.cut,'학위수여기관 소재지');
+      }else check(r,start,start+src.cut,'region','학위수여기관과 소재지의 경계를 확인하세요.');
+    }
+    if(!src.online && /^\s*,/.test(suffix) && /\)\.?\s*$/.test(text) && /\([^()]*$/.test(text.slice(0,degree.index)))
+      check(r,start,end,'thesis-medium','온라인 학위논문이라면 출처 URL을 확인하세요.','학위 유형·학교·소재지만으로 제공 매체를 확정하기 어렵습니다.');
+    if(src.url && !/retrieved from\s+https?:/i.test(b))check(r,start+src.cut,end,'thesis-online','온라인 학위논문의 출처 표기를 확인하세요.','제공된 예시에서 URL 앞에 Retrieved from을 사용합니다.');
   }
   function news(r,start,end,d) {
-    const b=r.original.slice(start,end);
-    if(!/^(?:\d{1,2}월\s*\d{1,2}일|[A-Za-z]+\s+\d{1,2})$/.test(d.month)) check(r,0,start,'news-date','기사 발행 연도·월·일을 확인하세요.');
-    const parts=/^(.+?[.?!])\s+(.+)/.exec(b);
-    if(!parts || /^(?:https?:|retrieved|pp?\.)/i.test(parts[2])) check(r,start,end,'newspaper','기사 제목과 신문명을 확인하세요.');
-    if(!online(b) && !/\bpp?\.\s*[A-Za-z가-힣]*\d+/i.test(b)) check(r,start,end,'news-page','지면 기사의 페이지 또는 온라인 기사의 URL을 확인하세요.');
-    if(/retrieved from/i.test(b) && !online(b)) check(r,start,end,'retrieval','온라인 기사의 URL을 확인하세요.');
+    const b=r.original.slice(start,end),src=source(b),body=b.slice(0,src.cut).trim();
+    const month=/^(?:[0-9]{1,2}월|January|February|March|April|May|June|July|August|September|October|November|December)$/i;
+    if(!/n\.d\./i.test(d.date) && (!d.month || month.test(d.month) || /^\d{1,2}일$/.test(d.month)))
+      missing(r,'news-date',r.type,d.yearStart+1,!d.month?'발행 월·일':month.test(d.month)?'발행 일':'발행 월');
+    else if(!/^(?:\d{1,2}월\s*\d{1,2}일|[A-Za-z]+\s+\d{1,2})$/.test(d.month))
+      check(r,0,start,'news-date','기사 발행 월·일 표기를 확인하세요.');
+    linkCheck(r,start,end,src);
+    const page=/(?:^|[\s,])pp?\.\s*(.*)$/i.exec(body);
+    const head=(page?body.slice(0,page.index):body).trim();
+    const parts=/^(.+[.?!])\s+(.*)$/.exec(head);
+    if(page && !hasValue(page[1]))missing(r,'news-page',r.type,end,'지면 기사 페이지');
+    else if(!src.online && !page){
+      if(parts && /^[^,.;:/\d]+\.?$/.test(parts[2]) && !/\b(?:page|section)\b|[A-Z]면/i.test(parts[2]) ||
+         !parts && /^[^.,:!?/\d]+[.!?]$/.test(body))
+        missing(r,'news-page',r.type,end,'지면 페이지 또는 온라인 출처 URL');
+      else check(r,start,end,'news-page','지면 페이지 또는 온라인 출처를 확인하세요.');
+    }else if(page && !/\d/.test(page[1]))check(r,start,end,'news-page','페이지 표기를 확인하세요.');
+    if(parts && hasValue(parts[2]))return;
+    if(page && (!hasValue(head) || /[.!?]\s*,?$/.test(head)) || src.online && !/[가-힣]/.test(r.author) && /^[^.,:]+[.!?]$/.test(head))
+      missing(r,'newspaper',r.type,start+head.length,'신문명');
+    else if(!parts)check(r,start,end,'newspaper','기사 제목과 신문명을 구분해 확인하세요.');
+    if(!hasValue(head) || page && /^(?:[가-힣]+(?:일보|신문)|The [A-Za-z ]+ (?:Times|Journal)),?$/i.test(head))
+      missing(r,'news-title',r.type,start,'기사 제목');
   }
   function conference(r,start,end) {
     const b=r.original.slice(start,end);
-    if(/poster session|presented at|포스터|발표회/i.test(b)) {
-      if(!/^.+[.?!]\s+.+/.test(b) || !/(?:presented at|포스터|발표회).+[,，]\s*[^,.\s].+/i.test(b)) check(r,start,end,'presentation','발표 제목, 행사명과 개최지를 확인하세요.');
-    } else {
-      if(!/pp?\.\s*\d+\s*[-–—]\s*\d+/i.test(b)) check(r,start,end,'proceedings-pages','출간 자료집의 수록 페이지를 확인하세요.');
-      if(!cityPublisher(b)) check(r,start,end,'proceedings-publisher','자료집의 출판도시와 발행처를 확인하세요.');
-      if(!/(?:세미나|학술대회|심포지엄|proceedings|conference|symposium)/i.test(b)) check(r,start,end,'proceedings-title','행사명과 발표 자료명을 확인하세요.');
+    const poster=/poster session|presented at|포스터|발표회/i.exec(b);
+    if(poster){
+      if(/^\s*(?:poster session\s+presented at|presented at)\b/i.test(b))missing(r,'presentation-title',r.type,start,'발표 제목');
+      const at=/presented at\s*(.*)$/i.exec(b);
+      if(at && !hasValue(at[1].split(',')[0]))missing(r,'presentation-event',r.type,start+at.index,'행사명');
+      if(at && (!hasValue(at[1]) || /^[^,]*,\s*\.?$/.test(at[1]) || /^[^,]*(?:Society|Association)\.\s*$/i.test(at[1])))
+        missing(r,'presentation-place',r.type,end,'개최지');
+      else if(!/(?:presented at|포스터|발표회).+[,，]\s*[^,.\s].+/i.test(b))check(r,start,end,'presentation','발표 제목, 행사명과 개최지를 확인하세요.');
+      return;
     }
+    const pair=imprint(b), main=pair?b.slice(0,pair.index):b;
+    const event=/(?:세미나|학술대회|심포지엄|proceedings|conference|symposium)/i.test(main);
+    if(!/pp?\.\s*\d+\s*[-–—]\s*\d+/i.test(main)){
+      if(/\(\s*pp?\.\s*\)/i.test(main) || (event && pair && !/(?:\d\s*[-–—~]\s*\d|\bpp?\b|쪽|페이지|\(\s*\d)/i.test(main)))
+        missing(r,'proceedings-pages',r.type,start+main.length,'자료집 수록 페이지');
+      else check(r,start,end,'proceedings-pages','출간 자료집의 수록 페이지를 확인하세요.');
+    }
+    if(event || pair || /\bpp?\.\s*\d/i.test(main))publication(r,start,end,'출판도시','자료집 발행처');
+    else check(r,start,end,'proceedings-publisher','학술대회 자료의 출간 여부와 발행 정보를 확인하세요.');
+    if(event && /[,，]\s*\(\s*pp?\./i.test(main))missing(r,'proceedings-work',r.type,start+main.lastIndexOf('('),'발표 자료명');
+    if(/^\s*[,，]/.test(main))missing(r,'proceedings-event',r.type,start,'행사명');
+    else if(!event)check(r,start,end,'proceedings-title','행사명과 발표 자료명을 확인하세요.');
   }
   function report(r,start,end) {
-    const b=r.original.slice(start,end);
-    if(/retrieved from/i.test(b) && !online(b)) check(r,start,end,'retrieval','온라인 보고서의 URL을 확인하세요.');
-    if(online(b)) {
-      if(!b.split(/retrieved from|https?:\/\//i)[0].trim()) check(r,start,end,'report-title','보고서 제목을 확인하세요.');
-    } else if(!cityPublisher(b)) check(r,start,end,'report-publisher','보고서 제목, 출판도시와 발행처 또는 온라인 출처를 확인하세요.');
+    const b=r.original.slice(start,end),src=source(b);
+    if(src.online){
+      linkCheck(r,start,end,src);
+      if(!hasValue(b.slice(0,src.cut)))missing(r,'report-title',r.type,start,'보고서 제목');
+    }else publication(r,start,end,'발행지','발행기관');
   }
   return {book,thesis,news,conference,report};
 })());

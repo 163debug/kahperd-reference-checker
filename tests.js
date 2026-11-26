@@ -16,9 +16,9 @@ const ValidationSuite = (() => {
   ref('연도 닫는 괄호 누락',ko.replace('(2016)','(2016'),'journal',k.error,ko);
   ref('마지막 영문 저자 앞 & 누락',en.replace('& ',''),'journal',k.error,en,['ampersand']);
   const missing=ko.replace('32(2), 512-530.','32(2).');
-  ref('페이지 누락 · 숫자 보존',missing,'journal',k.review,missing,['volume-incomplete']);
+  ref('페이지 누락 · 숫자 보존',missing,'journal',k.error,missing,['journal-pages']);
   const volume=ko.replace('32(2), ','');
-  ref('권·호 누락 · 페이지 보존',volume,'journal',k.review,volume,['volume-incomplete']);
+  ref('권·호 누락 · 페이지 보존',volume,'journal',k.error,volume,['journal-volume']);
   const doi=ko+' doi: 10.23949/kjpe.2017.05.56.3.2';
   ref('DOI 예시 표기',doi,'auto',k.review);
   ref('DOI URL 접두부만 수정',doi.replace('doi: ','https://doi.org/'),'auto',k.error,doi,['doi-prefix']);
@@ -32,6 +32,75 @@ const ValidationSuite = (() => {
   return {k,ko,en,ref,cases,run};
 })();
 if(typeof module!=='undefined') module.exports=ValidationSuite;
+
+{
+  const {k,cases}=ValidationSuite;
+  const parser=typeof require==='function'?require('./reference-input.js'):ReferenceInput;
+  function required(name,type,input,ids){
+    cases.push({name:'필수 필드 · '+name,input,expected:ids.length?'수정 필요 · '+ids.join(', '):'확정 누락 없음',run(){
+      const result=k.reference(input,type), manual=result.issues.filter(i=>i.manual);
+      const actual=manual.map(i=>i.id).sort().join(', ');
+      const pass=actual===ids.slice().sort().join(', ') && result.suggested===input &&
+        manual.every(i=>i.level===k.error && i.ref.includes('제11조') && i.advice.includes('원자료에서 확인해 직접 입력')) &&
+        (ids.length ? result.status===k.error && parser.suggestionMessage(result,'ref').includes('직접 입력') : result.status!==k.error);
+      return {pass,actual:result.status+' · '+(actual||'확정 누락 없음')+' · '+result.suggested};
+    }});
+  }
+  const author='홍길남(2018). ', thesis=author+'체육 연구. 미간행 박사학위논문. ';
+  required('국문 미간행 학위논문 소재지','auto',thesis+'서울대학교 대학원.',['region']);
+  required('영문 미간행 학위논문 소재지','auto','Kim, J. (2018). Exercise. (Unpublished doctoral dissertation). Yonsei University.',['region']);
+  required('학위수여기관·소재지 모두 생략','thesis',thesis.trim(),['school','region']);
+  required('학위수여기관만 생략','thesis',thesis+', 서울.',['school']);
+  required('학위 수여 기관과 소재지의 경계가 불분명','thesis',thesis+'서울대학교 대학원 서울.',[]);
+  required('학위수여기관 약칭과 소재지가 있음','thesis',thesis+'KAIST, 대전.',[]);
+  required('학위 구분이 생략된 미간행 학위논문','thesis',thesis.replace('박사','')+'서울대학교 대학원, 서울.',['degree']);
+  required('출간 학위논문에 대학·소재지를 강제하지 않음','thesis',author+'체육 연구. 서울: 체육출판사.',[]);
+  required('출간 학위논문 출판사 빈칸','thesis',author+'체육 연구. 서울: .',['publication-publisher']);
+  required('온라인 학위논문 URL로 소재지를 채우지 않음','thesis',author+'체육 연구 (Master’s thesis, Yonsei University). Retrieved from https://example.org/t',['region']);
+  required('온라인 학위논문 URL 생략','thesis',author+'체육 연구 (Master’s thesis, Yonsei University, Seoul). Retrieved from',['retrieval']);
+  required('학위논문 제목 빈칸','thesis',author+'미간행 박사학위논문. 서울대학교 대학원, 서울.',['thesis-title']);
+  required('단행본 출판도시 빈칸','book',author+'체육 연구. : 체육출판사.',['publication-city']);
+  required('단행본 출판사 빈칸','book',author+'체육 연구. 서울: .',['publication-publisher']);
+  required('단행본 출판정보 생략','book',author+'체육 연구.',['publication-source']);
+  required('단행본 부제 콜론을 출판정보로 해석하지 않음','book',author+'체육 연구: 새로운 접근. 서울 / 체육출판사.',[]);
+  required('단행본 출판사만 기재','book',author+'체육 연구. 체육출판사.',['publication-city']);
+  required('보고서 발행지 빈칸','report',author+'훈련 보고서. : 체육연구소.',['publication-city']);
+  required('보고서 발행기관 빈칸','auto',author+'훈련 보고서. 서울: .',['publication-publisher']);
+  required('보고서 장소만 기재','report',author+'훈련 보고서. 서울.',['publication-publisher']);
+  required('보고서 출처 전체 생략','auto',author+'훈련 보고서.',['publication-source']);
+  required('온라인 보고서 URL 빈칸','report',author+'훈련 보고서. Retrieved from .',['retrieval']);
+  required('보고서 온라인 출처가 있으면 지면 필드 제외','report',author+'훈련 보고서. https://example.org/report',[]);
+  required('온라인 보고서 비표준 출처 유지','report',author+'훈련 보고서. Retrieved from www.example.org',[]);
+  const print='홍길남(2018, 3월 8일). 체육 소식. 동해일보, p. A2.';
+  required('기사 월·일 생략','auto',print.replace(', 3월 8일',''),['news-date']);
+  required('기사 일 생략','news',print.replace('3월 8일','3월'),['news-date']);
+  required('기사 비표준 날짜에는 값이 있음','news',print.replace('3월 8일','03/08'),[]);
+  required('신문명 빈칸','news',print.replace('동해일보',''),['newspaper']);
+  required('신문기사 페이지 빈칸','news',print.replace('A2',''),['news-page']);
+  required('지면 페이지·온라인 출처 둘 다 없음','news',print.replace(', p. A2',''),['news-page']);
+  required('지면 기사 비표준 페이지 표기는 보존','news',print.replace('p. A2','2면'),[]);
+  required('온라인 기사 URL 빈칸','news',print.replace(', p. A2.','. Retrieved from'),['retrieval']);
+  required('국문 온라인 예시에서 신문명 생략 가능성','news',print.replace('동해일보, p. A2.','https://example.org/news'),[]);
+  const conf=author+'제24회 체육 세미나, 전문체육인의 역할(pp. 29-56). 서울: 한국체육학회.';
+  required('자료집 수록 페이지 빈칸','auto',conf.replace('29-56',''),['proceedings-pages']);
+  required('자료집 수록 페이지 생략','auto',conf.replace('(pp. 29-56)',''),['proceedings-pages']);
+  required('자료집 페이지 기호만 다른 경우','auto',conf.replace('pp. 29-56','29–56'),[]);
+  required('자료집 발행처 빈칸','auto',conf.replace('한국체육학회.','.'),['publication-publisher']);
+  required('자료집 발표 자료명 빈칸','auto',conf.replace('전문체육인의 역할',''),['proceedings-work']);
+  required('포스터 개최지 빈칸·수록 페이지 제외','conference',author+'운동 연구. Poster session presented at the Sports Society, .',['presentation-place']);
+  required('논문 권만 있고 페이지 빈칸','journal',author+'운동 연구. 한국체육학회지, 32(2), .',['journal-pages']);
+  required('논문 권 누락·페이지 유지','journal',author+'운동 연구. 한국체육학회지, 21-32.',['journal-volume']);
+  required('호를 발행하는지 불확실한 학술지','journal',author+'운동 연구. 한국체육학회지, 32, 21-32.',[]);
+  required('연도 괄호가 비어 있음','book','홍길남(). 체육 연구. 서울: 체육출판사.',['year-empty']);
+  required('학술지명이 들어갈 자리만 비어 있음','journal',author+'운동 연구. , 32(2), 21-32.',['journal-name']);
+  required('저자 칸이 비어 있음','book','(2018). 체육 연구. 서울: 체육출판사.',['author-empty']);
+  required('도시와 출판사만 적힌 단행본','book',author+'서울: 체육출판사.',['publication-title']);
+  required('온라인 보고서의 제목 빈칸','report',author+'Retrieved from https://example.org/report',['report-title']);
+  required('기관명만 적힌 지면 보고서','report',author+'훈련 보고서. 한국문화대학교 체육과학연구소.',['publication-city']);
+  required('온라인인지 확정되지 않은 학위논문','thesis',author+'체육 연구 (Master’s thesis, Yonsei University, Seoul).',[]);
+  required('제공된 n.d. 표기 보존','report','홍길남(n.d.). 훈련 보고서. 서울: 체육연구소.',[]);
+  required('내용만으로 문헌 유형을 판별하기 어려움','auto',author+'체육 연구.',[]);
+}
 
 {
   const {k,ko,en,cases}=ValidationSuite;

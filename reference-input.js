@@ -108,6 +108,7 @@ const ReferenceInput = (() => {
   function suggestionMessage(record,mode) {
     if(record.original!==record.suggested)return '';
     if(mode==='ref' && record.type==='auto')return '문헌 유형을 먼저 확인해 주세요.';
+    if(record.issues.some(i=>i.manual))return '누락된 값은 원자료에서 확인해 직접 입력하세요.';
     return record.issues.length?'자동으로 수정할 항목이 없습니다. 위의 확인 사항을 검토해 주세요.':'자동으로 수정할 항목이 없습니다.';
   }
   return {entries,suggestionMessage,personalList,koreanDateHeader};
