@@ -1,8 +1,10 @@
 'use strict';
 const Kahperd = (() => {
+  const inputParser=typeof require==='function'?require('../reference-input.js'):ReferenceInput;
   const ok = '정상', error = '수정 필요', review = '확인 필요';
   const types = {auto:'자동 판별', journal:'학술지 논문', book:'단행본', thesis:'석·박사 학위논문', news:'신문기사', conference:'학술대회·심포지엄 자료', report:'보고서'};
   const rules = {
+    parsing:'검사기 처리 방식 · 문헌 유형 및 필드 식별',
     year:'제11조 · 출판연도 표기', author:'제11조 제1항 · 학술지 저자 표기',
     titleSeparator:'제11조 제1항 · 논문 제목과 학술지명 표기 예시', title:'제11조 제1항 · 영문 논문 제목', journal:'제11조 제1항 · 학술지명',
     volume:'제11조 제1항 · 권·호·페이지', doi:'제11조 · DOI 표기 예시',
@@ -47,17 +49,20 @@ const Kahperd = (() => {
     const brokenStart=b?b.index+b[0].indexOf(b[1]):-1;
     const useBroken=b && (!m || brokenStart<m.index) && !normalYear.test(b[1]);
     if(!m && !useBroken) {
-      note(r,'year-unknown',review,'year',0,s.length,'저자와 출판연도의 경계를 확인하기 어렵습니다.',sourcePrompt);
+      note(r,'year-unknown',review,'parsing',0,s.length,'저자와 출판연도의 경계를 확인하기 어렵습니다.',sourcePrompt);
       return null;
     }
     const token=useBroken?b[1]:m[0];
     const pos=useBroken?brokenStart:m.index;
     r.author=s.slice(0,pos).trim();
     const candidate=r.author.replace(/\((?:편|Eds?\.?)\)\.?$/i,'').trim();
+    const following=s.slice(pos+token.length);
+    const clearKoreanDate=!useBroken && inputParser.koreanDateHeader(candidate,following) &&
+      /^(?:\s*[.,:;]|\s+|$)/.test(following);
     if ((useBroken && /^,\s*(?:\d{1,2}월|[A-Za-z]+\s+\d|\w+\))/.test(s.slice(pos+token.length))) ||
-        /[?!:;]|\p{Ll}{2,}\.\s|\p{Script=Hangul}\.\s/u.test(candidate) ||
+        (!clearKoreanDate && /[?!:;]|\p{Ll}{2,}\.\s|\p{Script=Hangul}\.\s/u.test(candidate)) ||
         (useBroken && !/^(?:[가-힣]{2,6}(?:,\s*[가-힣]{2,6})*|.*\p{Lu}\.)$/u.test(candidate))) {
-      note(r,'year-unknown',review,'year',pos,pos+token.length,'저자 다음의 출판연도인지 확인하세요.',sourcePrompt);
+      note(r,'year-unknown',review,'parsing',pos,pos+token.length,'저자와 연도 사이의 경계를 원자료에서 확인하세요.',sourcePrompt);
       return null;
     }
     if(!r.author) note(r,'author-empty',review,'type',0,pos,'저자 정보가 비어 있습니다.',sourcePrompt);
@@ -68,7 +73,7 @@ const Kahperd = (() => {
       // Do not treat numbers from free text or a title as an author's publication year.
       const plausible=/^[가-힣a-zA-ZÀ-ž,.\s&'’\-]+$/u.test(r.author) && !/[가-힣]\.\s|[a-z]{2}\.\s/i.test(r.author);
       if(!plausible) {
-        note(r,'year-unknown',review,'year',pos,pos+token.length,'이 숫자가 출판연도인지 확인하세요.',sourcePrompt);
+        note(r,'year-unknown',review,'parsing',pos,pos+token.length,'이 숫자가 출판연도인지 확인하세요.',sourcePrompt);
         return null;
       }
       note(r,'year-brackets',error,'year',pos,pos+token.length,'출판연도의 괄호가 빠졌습니다.','입력된 연도를 한 쌍의 괄호로 감싸세요.','('+token.replace(/[()]/g,'')+')');
@@ -97,13 +102,16 @@ const Kahperd = (() => {
     const flag=(id,msg,ref='author')=>note(r,id,review,ref,pos,pos+a.length,msg,sourcePrompt);
     if(/[가-힣]/.test(a)) {
       const names=a.replace(/\s*[,，]$/,'');
-      if(/^[가-힣]{2,6}(?:\s*,\s*[가-힣]{2,6})*$/.test(names)){
-        for(const gap of names.matchAll(/\s*,\s*/g))
-          separator(r,'ko-author-comma','author',pos+gap.index,pos+gap.index+gap[0].length,', ','국문 저자 사이의 쉼표와 공백을 확인하세요.','앞 저자명에 쉼표를 붙이고 다음 저자까지 한 칸 띕니다.');
+      if(inputParser.personalList(names)){
+        const gaps=/\s*[,，.;·]\s*/g;
+        for(const gap of names.matchAll(gaps))
+          separator(r,'ko-author-comma','author',pos+gap.index,pos+gap.index+gap[0].length,', ','국문 저자 사이의 구분기호와 공백을 확인하세요.','앞 저자명에 쉼표를 붙이고 다음 저자까지 한 칸 띕니다.');
         if(names!==a){
           note(r,'ko-author-year-comma',error,'author',pos+names.length,yearStart,'마지막 국문 저자 이름과 연도 사이에 불필요한 쉼표가 있습니다.','쉼표와 공백을 지우고 마지막 저자명에 연도 괄호를 붙입니다.','');
-          r.author=names;
         }else separator(r,'year-position','year',pos+a.length,yearStart,'','국문 저자와 연도 괄호 사이에 공백이 있습니다.','국문 학술지 예시처럼 마지막 저자명에 연도 괄호를 붙입니다.');
+        r.author=names.replace(gaps,', ');
+      }else if(/[.;·]/.test(names)){
+        flag('ko-author-boundary','기호가 저자 사이의 구분인지 이름·단체명에 포함되는지 원자료에서 확인하세요.','parsing');
       }
       if(/(?:\s등|외\s*\d*\s*인?|et al\.)$/.test(a)) flag('ko-authors','국문 저자명을 모두 기재했는지 확인하세요.');
       else if(/^[가-힣]{2,5}(?:\s+[가-힣]{2,5})+$/.test(a)) flag('ko-separator','여러 저자의 이름이라면 쉼표로 구분하세요.');
@@ -195,7 +203,7 @@ const Kahperd = (() => {
       const from=start+split[1].length, to=start+heading.lastIndexOf(split[2]);
       separator(r,'title-space','titleSeparator',from,to,' ','제목과 학술지명 사이의 공백을 확인하세요.','제목 뒤에서 한 칸 띄우고 학술지명을 씁니다.');
     }
-    if(!split)note(r,'title-boundary',review,'titleSeparator',start,start+stop,'제목 뒤의 마침표와 학술지명이 시작되는 위치를 확인하세요.','제목과 학술지의 경계를 원자료에서 확인하세요. 경계가 불명확해 마침표를 자동으로 삽입하지 않습니다.');
+    if(!split)note(r,'title-boundary',review,'parsing',start,start+stop,'제목 뒤의 마침표와 학술지명이 시작되는 위치를 확인하세요.','제목과 학술지의 경계를 원자료에서 확인하세요. 경계가 불명확해 마침표를 자동으로 삽입하지 않습니다.');
     if(split && /^[A-Za-z]/.test(split[1])) {
       const title=split[1], suspicious=/^[a-z]|:\s*[a-z]|(?<=\s)[A-Z][a-z]+/.exec(title);
       if(suspicious) note(r,'title-case',review,'title',start,start+title.length,'영문 제목의 대소문자를 확인하세요.','제목·하위제목의 첫 글자와 고유명사를 원자료와 대조하세요.');
@@ -236,7 +244,7 @@ const Kahperd = (() => {
     r.type=selected==='auto'?guess(body,d):selected;
     if(r.type==='journal' && d) journal(r,start,end,styles,d.yearStart);
     else if(extraTypes[r.type] && d) extraTypes[r.type](r,start,end,d);
-    else if(r.type==='auto') note(r,'type-unknown',review,'type',0,original.length,'문헌 유형을 확정하기 어렵습니다.','이 항목의 문헌 유형을 선택해 다시 검사하세요.');
+    else if(r.type==='auto') note(r,'type-unknown',review,'parsing',0,original.length,'문헌 유형을 확정하기 어렵습니다.','이 항목의 문헌 유형을 선택해 다시 검사하세요.');
     return finish(r);
   }
   // Additional checks are registered below, independently of the interface.

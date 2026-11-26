@@ -31,9 +31,10 @@ selectTypes($('type'));
 let mode='ref',lang=0,timer;
 const editor=$('entry'), citationEditor=$('citeEntry');
 const activeInput=()=>mode==='ref'?editor:citationEditor;
+let lastPasteStatus=null;
 function snapshot(){return mode==='ref'?RichInput.read(editor,true):{text:citationEditor.value};}
 function setInput(text){
-  if(mode==='ref')editor.textContent=text;
+  if(mode==='ref'){editor.textContent=text;lastPasteStatus=null;}
   else citationEditor.value=text;
 }
 let entries=[],overrides={},records=[],sorting;
@@ -52,9 +53,9 @@ function updateCount(){
   entries=ReferenceInput.entries(input.text,mode,input.styles);
   const notice=$('formatNotice');
   notice.hidden=mode!=='ref'||!input.text.trim();
-  if(!notice.hidden)notice.textContent=input.styles.some(s=>s?.bold!=null||s?.italic!=null)
-    ?'붙여넣은 서식을 확인했습니다. 학술지명과 권 번호의 검사 결과는 항목별로 표시합니다.'
-    :'서식 정보가 전달되지 않아 굵게/이탤릭은 확인할 수 없습니다.';
+  if(!notice.hidden)notice.textContent=lastPasteStatus
+    ?'최근 붙여넣기 · '+RichInput.pasteMessages[lastPasteStatus]
+    :'학술지명과 권 번호의 서식은 검사 결과에서 확인할 수 있습니다.';
   $('lineCount').textContent=entries.length+(mode==='ref'?'개 문헌':'개 인용');
   const merged=entries.filter(e=>e.lastLine>e.firstLine).length;
   $('joinNotice').hidden=!merged;
@@ -80,15 +81,22 @@ function switchMode(next){
   $('inspect').lastElementChild.textContent=ref?'참고문헌 검사하기':'본문 인용 검사하기';invalidate();sampleCard();
 }
 $('refMode').onclick=()=>switchMode('ref');$('citeMode').onclick=()=>switchMode('cite');
-editor.oninput=invalidate;citationEditor.oninput=invalidate;
+editor.oninput=()=>{lastPasteStatus=null;invalidate();};citationEditor.oninput=invalidate;
+function insertClipboard(data){
+  const pasted=RichInput.clipboard(data);
+  if(!pasted.text)return;
+  RichInput.insert(editor,pasted);
+  lastPasteStatus=pasted.status;
+  invalidate();
+}
 editor.addEventListener('paste',event=>{
   event.preventDefault();
-  if(event.clipboardData){RichInput.insert(editor,RichInput.clipboard(event.clipboardData));invalidate();}
+  if(event.clipboardData)insertClipboard(event.clipboardData);
 });
 editor.addEventListener('drop',event=>{
   event.preventDefault();
   if(event.dataTransfer){
-    editor.focus();RichInput.insert(editor,RichInput.clipboard(event.dataTransfer));invalidate();
+    editor.focus();insertClipboard(event.dataTransfer);
   }
 });
 $('inputTitle').onclick=()=>activeInput().focus();

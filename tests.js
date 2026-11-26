@@ -315,4 +315,84 @@ if(typeof document!=='undefined'){
   pasteCase('브라우저 붙여넣기 · 순수 텍스트는 서식 확인 필요',en,null,'fontStyle',k.review,'normal');
 }
 
+{
+  const {k,ref,cases}=ValidationSuite;
+  const parser=typeof require==='function'?require('./reference-input.js'):ReferenceInput;
+  const report='김준식, 김정운. 한소원, 김연수(2018). 장노년층 스마트폰 활용능력에 따른 체질량 지수 차이. 대한스포츠의학회지, 36(4), 189-196.';
+  const fixed=report.replace('김정운.','김정운,');
+  for(const [name,separator] of [['제보의 마침표','. '],['세미콜론','; '],['가운뎃점','·']]){
+    const input=fixed.replace('김정운, ','김정운'+separator);
+    cases.push({name:'저자 구분 · '+name,input,expected:fixed,run(){
+      const r=k.reference(input),errors=r.issues.filter(i=>i.level===k.error);
+      const pass=r.suggested===fixed && r.status===k.error && errors.length===1 &&
+        errors[0].id==='ko-author-comma' && errors[0].ref===k.rules.author &&
+        input.slice(errors[0].start,errors[0].end)===separator &&
+        !r.issues.some(i=>i.id.startsWith('year-')) && r.formatChecks.length===2;
+      return {pass,actual:r.suggested+' · '+r.issues.map(i=>i.id).join(', ')};
+    }});
+  }
+  ref('정상 복수 저자 · 저자명·연도 원문 유지',fixed,'auto',k.review,fixed,['journal-format']);
+  const prev='김가은(2024). 관람 연구. 한국체육학회지, 12(3), 43-56.';
+  for(const [name,body] of [['한 줄씩',report],['저자 중간 줄바꿈',report.replace('김정운. ','김정운.\n')],
+    ['권호 앞 줄바꿈',report.replace(' 대한스포츠의학회지','\n대한스포츠의학회지')]]){
+    const input=prev+'\n'+body;
+    cases.push({name:'오류 포함 복수 문헌 경계 · '+name,input,expected:'2개 · '+fixed,run(){
+      const g=parser.entries(input,'ref'),r=g[1]&&k.reference(g[1].text);
+      return {pass:g.length===2 && g[0].text===prev && g[1].raw===body && r.suggested===fixed,
+        actual:g.length+'개 · '+(r?.suggested||'')};
+    }});
+  }
+  const org=report.replace('김준식, 김정운. 한소원, 김연수','체육연구소; 스포츠의학회');
+  const short=report.replace('김준식, 김정운. 한소원, 김연수','김준; 이솔');
+  cases.push({name:'모호한 짧은 저자명과 독립적으로 연도 식별',input:short,expected:k.review,run(){
+    const r=k.reference(short);
+    return {pass:r.status===k.review && r.suggested===short && !r.issues.some(i=>i.id==='year-unknown') &&
+      r.issues.some(i=>i.id==='ko-author-boundary'),actual:r.issues.map(i=>i.id).join(', ')};
+  }});
+  cases.push({name:'단체명 구분 불확실 · 원문과 명확한 연도 보존',input:org,expected:k.review,run(){
+    const r=k.reference(org);
+    return {pass:r.status===k.review && r.suggested===org && !r.issues.some(i=>i.id.startsWith('year-')) &&
+      r.issues.some(i=>i.id==='ko-author-boundary' && i.ref===k.rules.parsing),actual:r.status+' · '+r.suggested};
+  }});
+  const prose='연구 문헌. 조사 대상(2019)과 방법. 학회지, 12(1), 1-10.';
+  cases.push({name:'제목 속 연도 · 파싱 한계를 규정 위반과 구분',input:prose,expected:k.review,run(){
+    const r=k.reference(prose,'journal');
+    return {pass:r.suggested===prose && r.status===k.review && r.issues.some(i=>i.id==='year-unknown'&&i.ref===k.rules.parsing),actual:r.status+' · '+r.issues.map(i=>i.ref).join(', ')};
+  }});
+}
+
+if(typeof document!=='undefined'){
+  const {cases,k}=ValidationSuite;
+  const text='김준식(2018). 관람 연구. 대한스포츠의학회지, 36(4), 189-196.';
+  const field='대한스포츠의학회지, 36';
+  const emph=text.replace(field,'<strong><em>'+field+'</em></strong>');
+  const examples=[
+    ['텍스트만 제공',null,'text',k.review],
+    ['HTML·강조 정보 없음','<p>'+text+'</p>','html',k.review],
+    ['HTML·일반체만 명시',text.replace(field,'<span style="font-weight:400">'+field+'</span>'),'normal',k.error],
+    ['HTML·굵게와 이탤릭',emph,'emphasis',k.ok],
+    ['HTML·선택 영역 밖 내용 제외','앞 문단<!--StartFragment-->'+emph+'<!--EndFragment-->다음 문단','emphasis',k.ok],
+    ['HTML·선택 영역에 상위 요소의 강조 상속','<b><i>제외<!--StartFragment-->'+text+'<!--EndFragment-->제외</i></b>','emphasis',k.ok],
+    ['HTML·텍스트 불일치 시 내용 보존',emph+'다른 글자','mismatch',k.review]
+  ];
+  for(const [name,html,status,fieldStatus] of examples){
+    cases.push({name:'브라우저 클립보드 진단 · '+name,input:text,expected:RichInput.pasteMessages[status],run(){
+      const transfer=new DataTransfer();
+      transfer.setData('text/plain',text);
+      if(html!==null)transfer.setData('text/html',html);
+      const event=new ClipboardEvent('paste',{clipboardData:transfer});
+      const clip=RichInput.clipboard(event.clipboardData);
+      const r=k.reference(clip.text,'journal',clip.styles);
+      const i=text.indexOf(field);
+      const style=clip.styles[i];
+      const preserved=status==='emphasis' ? style?.bold===true && style?.italic===true :
+        status==='normal' ? style?.bold===false : style?.bold==null && style?.italic==null;
+      return {pass:clip.text===text && clip.status===status && preserved &&
+        r.formatChecks.every(f=>f.status===fieldStatus) && r.formatChecks.length===2,
+        actual:RichInput.pasteMessages[clip.status]+' · '+r.formatChecks.map(f=>f.status).join(' / ')};
+    }});
+  }
+}
+
+
 

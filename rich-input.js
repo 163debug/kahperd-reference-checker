@@ -70,7 +70,7 @@ const RichInput=(()=>{
     apply(node.style,1e5);
     return result;
   }
-  function read(root,editor=false,rules=[]){
+  function read(root,editor=false,rules=[],range=null){
     const pieces=[],styles=[];let last='',blockEnded=false;
     function append(s,style=unknown){
       if(!s)return;
@@ -79,6 +79,7 @@ const RichInput=(()=>{
     }
     function boundary(){if(last && last!=='\n')append('\n');blockEnded=false;}
     function visit(n,parent){
+      if(range && !range.intersectsNode(n))return;
       if(n.nodeType===3){
         const value=n.nodeValue.replace(/\r\n?/g,'\n');
         if(!editor && /^\s+$/.test(value) && value.includes('\n'))return;
@@ -123,12 +124,44 @@ const RichInput=(()=>{
     if(/[^\s\u200b]/.test(rich.text.slice(j)))return {text,styles:[]};
     return {text,styles};
   }
+  function fragmentRange(root){
+    const comments=root.ownerDocument.createTreeWalker(root,NodeFilter.SHOW_COMMENT);
+    let start=null;
+    for(let node=comments.nextNode();node;node=comments.nextNode()){
+      if(node.data.trim()==='StartFragment')start=node;
+      if(node.data.trim()==='EndFragment' && start){
+        const range=root.ownerDocument.createRange();
+        range.setStartAfter(start);range.setEndBefore(node);return range;
+      }
+    }
+    return null;
+  }
+  const pasteMessages={
+    text:'텍스트만 전달되어 굵게/이탤릭을 확인할 수 없습니다.',
+    html:'HTML은 전달되었지만 해당 부분의 서식을 확인할 수 없습니다.',
+    emphasis:'붙여넣은 굵게/이탤릭 서식을 감지했습니다.',
+    normal:'HTML에 일반체로 명시된 문자가 있습니다. 굵게/이탤릭으로 지정된 문자는 감지되지 않았습니다.',
+    mismatch:'HTML에서 강조 서식을 감지했지만 일반 텍스트와 내용이 달라 적용 위치를 확인할 수 없습니다.'
+  };
+  function hasEmphasis(styles){
+    return styles.some(s=>s?.bold===true || s?.italic===true);
+  }
   function clipboard(data){
     const plain=data.getData('text/plain'),html=data.getData('text/html');
-    if(!html)return {text:plain.replace(/\r\n?/g,'\n'),styles:[]};
+    if(!html){
+      const htmlOffered=Array.from(data.types||[]).includes('text/html');
+      return {text:plain.replace(/\r\n?/g,'\n'),styles:[],status:htmlOffered?'html':'text'};
+    }
     const template=document.createElement('template');
     template.innerHTML=html;
-    return align(plain,read(template.content,false,clipboardRules(template.content)));
+    const root=template.content;
+    const rich=read(root,false,clipboardRules(root),fragmentRange(root));
+    const result=align(plain,rich);
+    if(hasEmphasis(result.styles))result.status='emphasis';
+    else if(!result.styles.length && hasEmphasis(rich.styles))result.status='mismatch';
+    else if(result.styles.some(s=>s?.bold===false || s?.italic===false))result.status='normal';
+    else result.status='html';
+    return result;
   }
   function fragment(snapshot,start=0,end=snapshot.text.length){
     const root=document.createDocumentFragment();
@@ -156,6 +189,6 @@ const RichInput=(()=>{
     range.insertNode(frag);range.setStartAfter(end);range.collapse(true);
     sel.removeAllRanges();sel.addRange(range);
   }
-  return {read,clipboard,insert,align,properties,fragment,unknown};
+  return {read,clipboard,insert,align,properties,fragment,unknown,pasteMessages};
 })();
 if(typeof module!=='undefined')module.exports=RichInput;
