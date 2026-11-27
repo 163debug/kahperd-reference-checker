@@ -168,6 +168,21 @@ const Kahperd = (() => {
   }
   // Match numeric fields from the right so commas in prose and DOI suffixes stay intact.
   const journalTail=/(\s*[,;]\s*|\s+|(?<=학회지|학술지))(\d+)(?:\s*\((\d+)\))?(\s*[,;]\s*|\s+|(?<=\)))(\d+)(\s*[-–—~]\s*)(\d+)(\s*[.,;]?)$/d;
+  function journalTitleCase(r,start,title) {
+    if(!/^[“‘"'(\[]*[A-Za-z]/.test(title))return;
+    for(const match of title.matchAll(/(^|[\s:])([“‘"'(\[]*)([A-Za-z][A-Za-z’'-]*)/g)){
+      const word=match[3], offset=match.index+match[1].length+match[2].length;
+      const before=title.slice(0,match.index+match[1].length).trimEnd();
+      const first=!before || before.endsWith(':');
+      const sentenceStart=/[.!?]["'”’)\]]*$/.test(before);
+      if(first ? /^[a-z]/.test(word) : !sentenceStart && /^[A-Z][a-z]/.test(word)){
+        note(r,'title-case',review,'title',start+offset,start+offset+word.length,
+          first?'영문 제목·하위제목의 첫 글자를 확인하세요.':'제목 중간에 대문자로 시작하는 단어가 있습니다.',
+          first?'제목 첫 글자의 대소문자를 원자료와 대조하세요.':'고유명사 등 원래 대문자로 쓰는 단어인지 원자료와 대조하세요.');
+        return;
+      }
+    }
+  }
   function journal(r,start,end,styles,yearStart) {
     journalAuthors(r,yearStart);
     const body=r.original.slice(start,end);
@@ -184,10 +199,8 @@ const Kahperd = (() => {
     if(numeric){
       if(!emptyJournal)field('journal-comma','journal',1,', ','학술지명 뒤의 쉼표 또는 공백을 확인하세요.','학술지명에 쉼표를 붙이고 권 번호 앞에서 한 칸 띕니다.');
       field('volume-comma','volume',4,', ','권·호 뒤의 쉼표 또는 공백을 확인하세요.','페이지 앞에 쉼표와 한 칸의 공백을 씁니다.');
-      if(/[–—]/.test(numeric[6])){
-        const [p,q]=numeric.indices[6];
-        note(r,'page-dash',review,'volume',start+p,start+q,'페이지 범위의 대시가 예시의 하이픈과 다릅니다.','대시의 폭까지 지정하는지 명확하지 않아 원문을 유지합니다.');
-      } else field('page-separator','volume',6,'-','페이지 범위의 하이픈 또는 공백을 확인하세요.','두 페이지 번호 사이에 하이픈을 붙여 씁니다.');
+      const dash=numeric[6].trim();
+      field('page-separator','volume',6,dash==='~'?'-':dash,'페이지 범위의 구분기호 또는 공백을 확인하세요.','시작 페이지와 끝 페이지를 대시로 이어 씁니다.');
       field('page-stop','volume',8,'.','페이지 범위 뒤의 마침표를 확인하세요.','끝 페이지 번호 뒤에 마침표를 붙입니다.');
       if(r.doiStart!==undefined)
         separator(r,'doi-space','doi',end,r.doiStart,' ','페이지와 DOI 사이의 공백을 확인하세요.','페이지의 마침표 다음에 한 칸 띄우고 DOI를 씁니다.');
@@ -222,10 +235,7 @@ const Kahperd = (() => {
     if(emptyJournal)
       missing(r,'journal-name','journal',start+stop,'학술지명');
     else if(!split)note(r,'title-boundary',review,'parsing',start,start+stop,'제목 뒤의 마침표와 학술지명이 시작되는 위치를 확인하세요.','제목과 학술지의 경계를 원자료에서 확인하세요. 경계가 불명확해 마침표를 자동으로 삽입하지 않습니다.');
-    if(split && /^[A-Za-z]/.test(split[1])) {
-      const title=split[1], suspicious=/^[a-z]|:\s*[a-z]|(?<=\s)[A-Z][a-z]+/.exec(title);
-      if(suspicious) note(r,'title-case',review,'title',start,start+title.length,'영문 제목의 대소문자를 확인하세요.','제목·하위제목의 첫 글자와 고유명사를 원자료와 대조하세요.');
-    }
+    if(split)journalTitleCase(r,start,split[1]);
     r.formatChecks=[];
     const journalName=split?.[2].trim();
     const key=/[가-힣]/.test(journalName||'')?'bold':/^[\p{Script=Latin}]/u.test(journalName||'')?'italic':null;
@@ -496,8 +506,8 @@ Kahperd.citation = function citation(original,context={}) {
 
 Kahperd.guide = [
   ['학술지 논문',Kahperd.rules.author,'국문 저자명은 모두 적고, 외국인 개인 저자는 성과 이니셜로 적습니다. 여러 외국인 저자의 마지막 이름 앞에는 &를 씁니다. 8인 이상 생략 예시는 앞 6명, 생략표, 마지막 저자 순입니다.'],
-  ['학술지명과 권·호·페이지','제11조 제1항 · 학술지명과 수록 정보','학술지명은 축약하지 않고 원제를 씁니다. 영문 학술지명의 명사·대명사는 첫 글자를 대문자로 씁니다. 국문 학술지명과 권 번호는 굵게, 영문 학술지명과 권 번호는 이탤릭체로 쓰며 호 번호는 정체로 씁니다.','학술지명의 품사와 고유명사는 원자료와 대조하세요. 서식 정보가 전달된 부분만 굵게·이탤릭 여부를 판정합니다.'],
-  ['영문 논문 제목',Kahperd.rules.title,'제목 첫머리와 콜론 뒤 하위제목의 첫 글자는 대문자입니다. 나머지는 원칙적으로 소문자이며 고유명사는 원자료와 대조하세요.'],
+  ['학술지명과 권·호·페이지','제11조 제1항 · 학술지명과 수록 정보','학술지명은 축약하지 않고 원제를 씁니다. 영문 학술지명의 명사·대명사는 첫 글자를 대문자로 씁니다. 국문 학술지명과 권 번호는 굵게, 영문 학술지명과 권 번호는 이탤릭체로 쓰며 호 번호는 정체로 씁니다.','숫자 페이지 사이 대시의 폭은 규정에서 지정하지 않아 입력한 기호를 유지합니다. 학술지명의 품사와 고유명사는 원자료와 대조하세요. 서식 정보가 전달된 부분만 굵게·이탤릭 여부를 판정합니다.'],
+  ['영문 논문 제목',Kahperd.rules.title,'제목 첫머리와 콜론 뒤 하위제목의 첫 글자는 대문자입니다. 나머지는 원칙적으로 소문자이며 고유명사는 원자료와 대조하세요.','학회 예시에는 여러 문장으로 된 제목이 있습니다. 마침표·물음표·느낌표 뒤에서 새 문장을 시작하는 대문자는 그대로 인정합니다.'],
   ['DOI',Kahperd.rules.doi,'DOI가 있는 학술지 예시에서는 페이지 뒤에 마침표와 공백을 쓰고 doi: 다음에 한 칸 띄워 식별자를 적습니다.','식별자를 조회하거나 새로 만들지 않습니다. 끝의 기호가 식별자의 일부일 수 있으면 확인 필요로 표시합니다.'],
   ['전체 정렬',Kahperd.rules.order,'한국어 표기 문헌을 가나다순으로 먼저 배치하고, 이어서 외국어 표기 문헌을 알파벳순으로 배치합니다.','첫 저자 정렬 키가 같으면 입력 순서를 유지합니다. 정렬안은 사용자가 선택할 때 적용합니다.','프로그램 처리 방식'],
   ['단행본','제11조 제2항 · 단행본','국문 책 제목은 굵게 씁니다. 영문 책 제목은 이탤릭체로 쓰며 명사·대명사만 대문자로 표기합니다. 재판 이상은 제목 뒤에 판수를 적습니다. 편집자는 (편), (Ed.) 또는 (Eds.)로 쓰고 출판도시와 출판사 사이는 콜론으로 구분합니다.','영문 편저 예시에는 (Eds).가 나옵니다. 설명과 마침표 위치가 달라 확인 필요로 표시하고 원문을 유지합니다. 책 제목의 대소문자도 일괄 변경하지 않습니다.'],

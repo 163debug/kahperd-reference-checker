@@ -35,6 +35,59 @@ if(typeof module!=='undefined') module.exports=ValidationSuite;
 
 {
   const {k,cases}=ValidationSuite;
+  const sample='Huang, Y., & Chiu, W. (2024). Let’s run green! Impact of runners’ environmental consciousness on their green perceived quality and supportive intention at participatory sport events. International Journal of Sports Marketing and Sponsorship, 25(3), 541–559.';
+  const title='Let’s run green! Impact of runners’ environmental consciousness on their green perceived quality and supportive intention at participatory sport events.';
+  const journal='International Journal of Sports Marketing and Sponsorship, 25';
+  function check(name,input,styles,ids,expected=input,word=''){
+    cases.push({name,input,expected:(ids.join(', ')||k.ok)+' · '+expected,run(){
+      const r=k.reference(input,'auto',styles),actual=r.issues.map(i=>i.id);
+      const status=ids.includes('page-separator')||ids.includes('journal-style-missing')?k.error:ids.length?k.review:k.ok;
+      const issue=r.issues.find(i=>i.id==='title-case');
+      return {pass:r.type==='journal' && r.status===status && r.suggested===expected &&
+        actual.join()===ids.join() && (!word || input.slice(issue?.start,issue?.end)===word),
+        actual:r.status+' · '+actual.join(', ')+' · '+r.suggested};
+    }});
+  }
+  const styleFor=(input,italic=true)=>{
+    const start=input.indexOf(journal);
+    return Array.from({length:input.length},(_,i)=>({italic:italic && i>=start && i<start+journal.length}));
+  };
+  check('제보 원문 · 일반 텍스트는 서식 두 곳만 확인',sample,null,['journal-format','journal-format']);
+  for(const [label,range] of [['하이픈','541-559'],['엔 대시','541–559'],['엠 대시','541—559']]){
+    const input=sample.replace('541–559',range);
+    check('숫자 페이지 범위 · '+label+' 유지',input,styleFor(input),[]);
+  }
+  const spaced=sample.replace('541–559','541 – 559');
+  check('엔 대시 주위 공백 · 대시 종류 보존',spaced,styleFor(spaced),['page-separator'],sample);
+  for(const [label,newTitle,word] of [
+    ['물음표 뒤 새 문장','Why run green? Impact on runners.'],
+    ['학회 예시의 마침표 뒤 새 문장','Sport participation across the life cycle. A review of the literature and suggestions for future research.'],
+    ['콜론 뒤 부제','Running green: Impact on runners.'],
+    ['닫는 따옴표 뒤 새 문장','Why say “run green!” Impact on runners.'],
+    ['여는 따옴표 안의 문장 첫 글자','What next? “Running green” for fun.'],
+    ['문장 첫 글자 뒤의 고유명사 후보','Why run green? Impact of Seoul events.','Seoul'],
+    ['소문자 부제 확인 유지','Running green: impact on runners.','impact'],
+    ['소문자 제목 확인 유지','running green.','running']
+  ]){
+    const input=sample.replace(title,newTitle);
+    check('영문 논문 제목 · '+label,input,styleFor(input),word?['title-case']:[],input,word);
+  }
+  check('명시적인 일반체 · 이탤릭 누락 두 곳 유지',sample,styleFor(sample,false),['journal-style-missing','journal-style-missing']);
+  if(typeof document!=='undefined'){
+    cases.push({name:'제보 원문 · 이탤릭 HTML 붙여넣기',input:sample,expected:k.ok,run(){
+      const data=new DataTransfer();
+      data.setData('text/plain',sample);
+      data.setData('text/html',sample.replace(journal,'<i>'+journal+'</i>'));
+      const clip=RichInput.clipboard(new ClipboardEvent('paste',{clipboardData:data}).clipboardData);
+      const r=k.reference(clip.text,'auto',clip.styles);
+      return {pass:clip.status==='emphasis' && r.suggested===sample && r.status===k.ok &&
+        r.issues.length===0 && r.formatChecks.length===2 && r.formatChecks.every(f=>f.status===k.ok),actual:r.status};
+    }});
+  }
+}
+
+{
+  const {k,cases}=ValidationSuite;
   const parser=typeof require==='function'?require('./reference-input.js'):ReferenceInput;
   function required(name,type,input,ids){
     cases.push({name:'필수 필드 · '+name,input,expected:ids.length?'수정 필요 · '+ids.join(', '):'확정 누락 없음',run(){
@@ -314,7 +367,7 @@ if(typeof module!=='undefined') module.exports=ValidationSuite;
   const question=fixed.replace('분석.','분석인가?');
   ref('제목 끝 물음표 보존',question,'auto',k.review,question,['journal-format']);
   const dash=fixed.replace('224-232','224–232');
-  ref('페이지 대시 폭 · 원문 보존',dash,'auto',k.review,dash,['page-dash']);
+  ref('엔 대시 · 원문 보존 및 서식 확인',dash,'auto',k.review,dash,['journal-format']);
   ref('DOI 식별자 끝 기호 보존',doi+'.','auto',k.review,doi+'.',['doi-ending']);
   const literal='( Volicer, K. A. 2016 ; Volicer, M. Y. 2016)';
   cases.push({name:'제10조 제8항 · 원문 예시의 두 Volicer 구별',input:literal,expected:k.ok,run(){
