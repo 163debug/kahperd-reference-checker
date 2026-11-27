@@ -652,3 +652,28 @@ if(typeof document!=='undefined'){
 
 
 
+
+if(typeof document!=='undefined'){
+  const ref='홍가람(2024). 가상 연구. 가상체육지, 1(1), 1-3.',other='김하늘(2023). 가상 조사. 가상체육지, 1(1), 4-9.';
+  function screen(name,body,list,scope,verify){
+    ValidationSuite.cases.push({name:'교차검사 화면 · '+name,input:body+'\n'+list,expected:name,run(){
+      const out=document.createElement('section'),result=CrossCheck.analyze(body,list,scope);
+      CrossCheckUI.render(out,result,body);
+      const buttons=[...out.querySelectorAll('button')];
+      return {pass:verify(out,buttons,result),actual:out.querySelector('.cross-overview').textContent};
+    }});
+  }
+  screen('정상 안내와 접힌 정상 문헌','(홍가람, 2024)',ref,'full',(out,buttons)=>out.textContent.includes('모두 일치') && buttons.every(b=>b.getAttribute('aria-expanded')==='false' && b.nextElementSibling.hidden));
+  screen('판정 보류는 요약 합계에서 제외','(홍가람, 2024)',ref+'\n'+other,'partial',out=>out.querySelector('.cross-notice').textContent.includes('1건') && !out.textContent.includes('모두 일치') && out.querySelector('.cross-overview').textContent==='정상 일치1건수정 필요0건확인 필요0건');
+  screen('개별 펼침과 독립 상태','(홍가람, 2024; 박가온, 2020)',ref+'\n'+other,'full',(out,buttons)=>{
+    const b=buttons[0];b.click();
+    const pass=b.nextElementSibling.id===b.getAttribute('aria-controls') && !b.nextElementSibling.hidden && buttons.slice(1).every(t=>t.nextElementSibling.hidden);
+    b.click();return pass && b.nextElementSibling.hidden && b.getAttribute('aria-expanded')==='false';
+  });
+  screen('집계 단위와 세부 통계 보존','(홍가람, 2024; 박가온, 2020)',[ref,ref,other].join('\n'),'full',out=>out.querySelector('.cross-overview').textContent.includes('누락 1건 · 미인용 1건 · 중복 추가 기재 1건') && out.querySelectorAll('.crossstats>div').length===10);
+  screen('파싱 실패 경고와 확인 항목','(???, ???)',ref+'\n\n???','full',(out,buttons,r)=>out.querySelector('.cross-notice').textContent.includes('실패 후보 1건') && out.querySelector('.cross-overview').textContent.includes('확인 필요'+r.stats.review+'건'));
+  screen('재검사 시 펼침 및 이전 문헌 제거','(홍가람, 2024)',ref,'full',(out,buttons)=>{
+    buttons[0].click();CrossCheckUI.render(out,CrossCheck.analyze('',other),'');
+    return !out.textContent.includes('홍가람') && [...out.querySelectorAll('button')].every(b=>b.getAttribute('aria-expanded')==='false');
+  });
+}

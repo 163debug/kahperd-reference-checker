@@ -65,7 +65,17 @@ jobs:
                       return Object.fromEntries([...document.querySelectorAll('.crossstats > div')].map(
                           cell => [cell.firstChild.textContent, Number(cell.lastChild.textContent)]));
                   }
-                  return {partial:inspect('partial'), full:inspect('full')};
+                  const partial = inspect('partial');
+                  const out = id('results');
+                  const controls = [...out.querySelectorAll('.cross-toggle')];
+                  if (!out.querySelector('.cross-overview') || !controls.length ||
+                      controls.some(b => b.getAttribute('aria-expanded') !== 'false' || !b.nextElementSibling.hidden))
+                      throw Error('Unexpected initial summary or disclosure state');
+                  controls[0].click();
+                  if (controls[0].nextElementSibling.hidden) throw Error('Detail did not open');
+                  const full = inspect('full');
+                  if (out.querySelector('[aria-expanded=true]')) throw Error('Stale disclosure state');
+                  return {partial, full};
               """})
               for scope in ['partial', 'full']:
                   row = result[scope]

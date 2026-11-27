@@ -17,3 +17,16 @@ footer{margin-top:48px;border-top:1px solid var(--line)}footer .frame{min-height
   .modebar button i{display:none}
   .crossstats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+.cross-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cross-overview>div{padding:12px;background:#f7f8fb;border-radius:8px}
+.cross-overview span,.cross-overview strong{display:block}
+.cross-overview strong{margin-top:5px;overflow-wrap:anywhere}
+.cross-item h4{font-size:1rem;margin:0;overflow-wrap:anywhere}
+.cross-item>.muted{margin:5px 0}
+.cross-toggle{min-height:44px;margin:4px 0;white-space:normal}
+.cross-toggle::after{content:'▾';margin-left:.45em}
+.cross-toggle[aria-expanded=true]::after{content:'▴'}
+.cross-toggle:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+#results>.cross-toggle{display:block}
+.cross-notice{padding:9px 12px;border-left:3px solid #92712f;background:#fff9ea}
+@media(max-width:480px){.cross-overview{gap:5px}.cross-overview>div{padding:8px}.cross-overview strong{font-size:.9rem}}
