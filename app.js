@@ -32,6 +32,7 @@ let mode='ref',lang=0,timer;
 const editor=$('entry'), citationEditor=$('citeEntry');
 const activeInput=()=>mode==='ref'?editor:citationEditor;
 let lastPasteStatus=null;
+const passageMode=()=>mode==='cite' && $('citationMode').value==='passage';
 function snapshot(){return mode==='ref'?RichInput.read(editor,true):{text:citationEditor.value};}
 function setInput(text){
   if(mode==='ref'){editor.textContent=text;lastPasteStatus=null;}
@@ -42,7 +43,7 @@ function toast(msg){$('toast').textContent=msg;clearTimeout(timer);timer=setTime
 function dialog(title,...content){$('modalTitle').textContent=title;$('modalBody').replaceChildren(...content);if(!$('modal').open)$('modal').showModal();}
 $('close').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)$('modal').close();}};
-$('help').onclick=()=>dialog('이용 방법',el('p','참고문헌 목록을 그대로 붙여넣으세요. 저자·연도 표기로 새 문헌을 찾아 이어지는 줄을 묶습니다. 표시된 문헌 수가 예상과 다르면 문헌 사이에 빈 줄을 넣으세요.'),el('p','결과 카드에서 문헌 유형을 변경하고 지적된 위치와 수정 근거를 확인할 수 있습니다. 여러 줄을 묶은 항목은 붙여넣은 줄도 펼쳐 볼 수 있습니다.'),el('p','본문 인용은 한 줄에 인용 표현 하나씩 입력하세요. 저자 수와 인용 차례를 아는 경우 선택하면 축약 표기를 더 정확히 검사합니다.'));
+$('help').onclick=()=>dialog('이용 방법',el('p','참고문헌 목록을 그대로 붙여넣으세요. 저자·연도 표기로 새 문헌을 찾아 이어지는 줄을 묶습니다. 표시된 문헌 수가 예상과 다르면 문헌 사이에 빈 줄을 넣으세요.'),el('p','결과 카드에서 문헌 유형을 변경하고 지적된 위치와 수정 근거를 확인할 수 있습니다. 여러 줄을 묶은 항목은 붙여넣은 줄도 펼쳐 볼 수 있습니다.'),el('p','본문 인용 검사에 문단을 붙여넣으면 인용을 찾아 개별로 검사합니다. 개별 인용 직접 입력에서는 한 줄에 한 표현을 넣고 저자 수와 인용 차례를 지정할 수 있습니다.'));
 async function copy(s){
   try{await navigator.clipboard.writeText(s);toast('복사했습니다.');}
   catch{const t=el('textarea',undefined,'manualcopy');t.value=s;t.readOnly=true;dialog('직접 복사',el('p','아래 선택된 내용을 복사하세요.'),t);t.focus();t.select();}
@@ -50,7 +51,7 @@ async function copy(s){
 function invalidate(){records=[];overrides={};$('results').hidden=true;updateCount();}
 function updateCount(){
   const input=snapshot();
-  entries=ReferenceInput.entries(input.text,mode,input.styles);
+  entries=passageMode()?CitationInput.extract(input.text):ReferenceInput.entries(input.text,mode,input.styles);
   const notice=$('formatNotice');
   notice.hidden=mode!=='ref'||!input.text.trim();
   if(!notice.hidden)notice.textContent=lastPasteStatus
@@ -74,12 +75,21 @@ function switchMode(next){
   if(mode===next)return;mode=next;
   const ref=mode==='ref';editor.hidden=!ref;citationEditor.hidden=ref;
   $('refMode').setAttribute('aria-pressed',ref);$('citeMode').setAttribute('aria-pressed',!ref);
-  $('context').hidden=ref;$('typeLabel').hidden=!ref;
+  $('citationModeField').hidden=ref;$('typeLabel').hidden=!ref;
   $('inputTitle').textContent=ref?'참고문헌 입력':'본문 인용 입력';
   $('inputTitle').htmlFor=activeInput().id;
-  $('hint').lastElementChild.textContent=ref?'줄바꿈은 자동으로 묶습니다. 문헌 사이에 빈 줄을 넣으면 구분됩니다.':'한 줄에 인용 표현 하나씩 입력하세요.';
+  citationHints();
   $('inspect').lastElementChild.textContent=ref?'참고문헌 검사하기':'본문 인용 검사하기';invalidate();sampleCard();
 }
+function citationHints(){
+  const ref=mode==='ref',passage=passageMode();
+  $('context').hidden=ref || passage;$('scopeField').hidden=!passage;
+  citationEditor.placeholder=passage?'검사할 논문 본문이나 문단을 붙여넣으세요.':'예: (홍길동, 2019) 또는 Gide & Rist(1994)';
+  $('hint').lastElementChild.textContent=ref?'줄바꿈은 자동으로 묶습니다. 문헌 사이에 빈 줄을 넣으면 구분됩니다.':
+    passage?'괄호형·서술형 인용을 찾습니다. 입력 범위를 기준으로 인용 차례를 검사합니다.':'한 줄에 인용 표현 하나씩 입력하세요.';
+}
+$('citationMode').onchange=()=>{citationHints();invalidate();};
+$('citationScope').onchange=invalidate;
 $('refMode').onclick=()=>switchMode('ref');$('citeMode').onclick=()=>switchMode('cite');
 editor.oninput=()=>{lastPasteStatus=null;invalidate();};citationEditor.oninput=invalidate;
 function insertClipboard(data){
@@ -105,7 +115,7 @@ for(const id of ['type','count','occurrence']) $(id).onchange=()=>{invalidate();
 $('sample').onclick=()=>{
   const inject=()=>{
     const type=$('type').value;
-    setInput(mode==='cite'?'(Price, 2015, 2004)\n홍길동 등(2016)\n(Gide & Rist, 1994)':
+    setInput(passageMode()?'선행연구에서는 관람 의도를 분석했다(Huang & Chiu, 2024). 홍길동(2019)은 참가 경험을 조사했다. 다른 연구에서도 유사한 결과가 나타났다(Price, 2015, 2004).':mode==='cite'?'(Price, 2015, 2004)\n홍길동 등(2016)\n(Gide & Rist, 1994)':
       type==='auto'?[rule.examples.journal[1].replace('& ',''),rule.examples.journal[0],rule.examples.report[0]].join('\n'):
       rule.examples[type].join('\n'));
     invalidate();activeInput().focus();
@@ -118,7 +128,7 @@ function originalText(r,styles) {
   const p=el('div',undefined,'original');let at=0;
   const formatted=styles?.some(s=>s?.bold||s?.italic);
   const segment=(a,b)=>formatted?RichInput.fragment({text:r.original,styles},a,b):r.original.slice(a,b);
-  const ranges=r.issues.filter(i=>i.end>i.start).slice().sort((a,b)=>a.start-b.start||Number(b.level===rule.error)-Number(a.level===rule.error));
+  const ranges=r.issues.filter(i=>i.end>i.start && (!passageMode() || i.level===rule.error)).slice().sort((a,b)=>a.start-b.start||Number(b.level===rule.error)-Number(a.level===rule.error));
   for(const i of ranges){
     const start=Math.max(at,i.start);if(i.end<=start)continue;
     p.append(segment(at,start));const mark=el('mark',undefined,i.level===rule.error?'err':'');mark.append(segment(start,i.end));mark.title=i.message;p.append(mark);at=i.end;
@@ -179,18 +189,44 @@ function sortPanel(){
   }return box;
 }
 function render(){
-  records=entries.map(({text,styles},i)=>mode==='ref'?rule.reference(text,overrides[i]||$('type').value,styles):rule.citation(text,{count:$('count').value,occurrence:$('occurrence').value}));
+  const history=passageMode()?CitationInput.history(entries,$('citationScope').value==='complete'):null;
+  records=entries.map((entry,i)=>mode==='ref'?rule.reference(entry.text,overrides[i]||$('type').value,entry.styles):
+    rule.citation(entry.text,history?{entry,history:history[i]}:{count:$('count').value,occurrence:$('occurrence').value}));
   const out=$('results');out.hidden=false;out.replaceChildren();const head=el('div',undefined,'sectionhead');head.append(el('h2','검사 결과'));out.append(head);
   const summary=el('div',undefined,'summary resultstats');
   for(const label of [mode==='ref'?'총 참고문헌':'총 인용',rule.ok,rule.error,rule.review]){
     const box=el('div');box.append(el('span',label),el('b',label.startsWith('총')?records.length:records.filter(r=>r.status===label).length));summary.append(box);
   }out.append(summary);
+  if(passageMode()){
+    if(!records.length){
+      out.append(el('p','인용 표현이 발견되지 않았습니다. 따로 검사할 표현은 개별 인용 직접 입력에서 확인하세요.'));
+      return;
+    }
+    const preview=el('div',undefined,'original');preview.id='passagePreview';
+    const source=citationEditor.value;let at=0;
+    records.forEach((r,i)=>{
+      if(r.status!==rule.error)return;
+      const entry=entries[i];preview.append(source.slice(at,entry.start));
+      const mark=el('mark',entry.text,'err');mark.title='본문 인용 '+(i+1)+' · 수정 필요';preview.append(mark);at=entry.end;
+    });
+    preview.append(source.slice(at));
+    const details=el('details');details.open=records.some(r=>r.status===rule.error);
+    details.append(el('summary','입력 본문 · 수정 필요 인용 위치'),preview);out.append(details);
+  }
   if(mode==='ref'&&records.length>1){sorting=rule.sortReferences(records);out.append(sortPanel());}
   for(let i=0;i<records.length;i++)out.append(card(records[i],i));
-  const actions=el('div',undefined,'buttons');actions.append(button('전체 수정안 복사',()=>copy(($('sortedCopy')?.checked?sorting.order.map(i=>records[i]):records).map(r=>r.suggested).join('\n')),'primary'),button('다시 검사하기',()=>inspect()));out.append(actions);
+  const actions=el('div',undefined,'buttons');
+  const copyResults=()=>{
+    if(passageMode()){
+      let at=0;const parts=[];
+      entries.forEach((e,i)=>{parts.push(citationEditor.value.slice(at,e.start),records[i].suggested);at=e.end;});
+      copy(parts.join('')+citationEditor.value.slice(at));
+    }else copy(($('sortedCopy')?.checked?sorting.order.map(i=>records[i]):records).map(r=>r.suggested).join('\n'));
+  };
+  actions.append(button(passageMode()?'수정안 반영 본문 복사':'전체 수정안 복사',copyResults,'primary'),button('다시 검사하기',()=>inspect()));out.append(actions);
 }
 function inspect(){
-  updateCount();if(!entries.length){toast('검사할 내용을 먼저 입력하세요.');activeInput().focus();return;}
+  updateCount();if(!entries.length && !(passageMode() && citationEditor.value.trim())){toast('검사할 내용을 먼저 입력하세요.');activeInput().focus();return;}
   render();$('results').focus({preventScroll:true});$('results').scrollIntoView({block:'start'});
 }
 $('inspect').onclick=inspect;

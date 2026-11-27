@@ -445,43 +445,90 @@ Kahperd.citation = function citation(original,context={}) {
   const yList=y+'(?:\\s*,\\s*'+y+')*';
   const enclosed=s.match(/^\(([^()]*)\)[.!?。]?$/);
   const narrative=new RegExp('^([^()]+?)\\s*\\(('+yList+')\\)(?:[가-힣]+)?[.!?。]?$').exec(s);
-  if(!enclosed && !narrative) {
+  const input=typeof require==='function'?require('../citation-input.js'):CitationInput;
+  const candidate=context.entry || input.extract(s)[0];
+  const parsed=candidate?.text===s?candidate:null;
+  if(!parsed && !enclosed && !narrative) {
     warn('citation-structure',review,'citation',0,original.length,'저자와 연도의 범위를 확인하세요.','본문에서 한 인용 표현만 복사해 한 줄에 입력하세요.');
     return finish(r);
   }
-  const groups=enclosed?enclosed[1].split(';'):[narrative[1]+', '+narrative[2]];
+  const groups=parsed?parsed.groups:enclosed?enclosed[1].split(';'):[narrative[1]+', '+narrative[2]];
   const keys=[],seen=new Map(); let position=offset+(enclosed?1:0);
-  for(const raw of groups) {
-    const p=position+raw.length-raw.trimStart().length, g=raw.trim();
-    position+=raw.length+1;
-    const sameFamily=new RegExp('^([\\p{Script=Latin}’\\x27-]+,\\s*(?:\\p{Lu}\\.\\s*)+),?\\s*('+yList+')$','u').exec(g);
-    const m=sameFamily||new RegExp('^(.+?),\\s*('+yList+')$').exec(g);
-    if(enclosed && new RegExp(y+',\\s*[\\p{L}][^;]*,\\s*'+y+'$','u').test(g)) {
-      warn('citation-delimiter',error,'multiple',p,p+g.length,'서로 다른 저자의 문헌 사이에 쉼표가 있습니다.','문헌 사이는 세미콜론으로 구분하세요.');
-      continue;
+  for(const [index,raw] of groups.entries()) {
+    let a,years,p,end,yearPos,yearLength,sameFamily,unclearYears=false;
+    const local=context.history?.[index] || context;
+    if(parsed){
+      p=offset+raw.start;end=offset+raw.authorEnd;a=raw.author;
+      years=raw.years;yearPos=offset+raw.yearStart;yearLength=raw.yearEnd-raw.yearStart;
+      const gap=(id,from,to,expected,ref,msg)=>{
+        const actual=original.slice(from,to).replace(/[ \t]*[\r\n]+[ \t]*/g,' ');
+        if(actual!==expected)warn(id,error,ref,from,to,msg,'표기 예시에 맞게 구분기호와 공백을 정리하세요.',expected);
+      };
+      if(index){
+        const between=offset+groups[index-1].yearEnd;
+        if(!/^\s*;\s+$/.test(original.slice(between,p)))gap('citation-delimiter',between,p,'; ','multiple','서로 다른 문헌은 세미콜론과 공백으로 구분합니다.');
+      }
+      if(!parsed.narrative){
+        if(!raw.withInitials || original.slice(end,yearPos).trim())
+          gap('citation-year-comma',end,yearPos,', ','citation','괄호 안 저자와 연도 사이에는 쉼표와 공백을 씁니다.');
+      }else if(/[,，]/.test(original.slice(end,original.indexOf('(',end))))
+        gap('citation-year-boundary',end,original.indexOf('(',end),'','citation','서술형 인용에서 연도 괄호 앞의 쉼표를 확인하세요.');
+      // A mixed-script author list has no unambiguous abbreviation or conjunction here.
+      const latin=raw.names.every(n=>/^\p{Script=Latin}/u.test(n));
+      if(!latin && !raw.names.every(n=>/^[가-힣]/.test(n))){
+        warn('citation-mixed-author',review,'parsing',p,end,'한글·로마자가 섞인 저자 표기를 확인하세요.','같은 문헌의 공동저자인지 원자료와 대조하세요.');
+        continue;
+      }
+      const separators=raw.withInitials?[]:[...a.matchAll(/\s*[,，]\s*(?:&\s*)?|\s*&\s*|\s+and\s+/g)];
+      for(const [j,sep] of separators.entries()){
+        const amp=sep[0].includes('&');
+        if(latin && j===separators.length-1 && !amp){
+          gap('citation-amp',p+sep.index,p+sep.index+sep[0].length,raw.names.length===2?' & ':', & ','count','영문 복수저자의 마지막 저자 앞에는 &를 씁니다.');
+        }else{
+          const replacement=amp && latin?(sep[0].trimStart().startsWith('&')?' & ':', & '):', ';
+          gap('citation-author-space',p+sep.index,p+sep.index+sep[0].length,replacement,'citation','저자 사이 구분기호와 공백을 확인하세요.');
+        }
+      }
+      if(/\set\s+al$/.test(a)){
+        warn('citation-et-al',error,'count',end,end,'et al.의 마침표가 빠졌습니다.','al 뒤에 마침표를 씁니다.','.');
+      }
+      unclearYears=/[;；]/.test(original.slice(yearPos,yearPos+yearLength));
+      if(unclearYears)warn('citation-year-group',review,'multiple',yearPos,yearPos+yearLength,'세미콜론 뒤 연도가 어느 저자의 문헌인지 확인하세요.','같은 저자의 연도라면 쉼표로 묶고, 다른 문헌이라면 저자를 기재하세요.');
+      else if(years.length>1 && years.every((v,i)=>!i || v>=years[i-1]))
+        gap('citation-year-list',yearPos,yearPos+yearLength,years.join(', '),'multiple','같은 저자의 여러 연도는 쉼표와 공백으로 구분합니다.');
+    }else{
+      const g=raw.trim();p=position+raw.length-raw.trimStart().length;
+      position+=raw.length+1;
+      sameFamily=new RegExp('^([\\p{Script=Latin}’\\x27-]+,\\s*(?:\\p{Lu}\\.\\s*)+),?\\s*('+yList+')$','u').exec(g);
+      const m=sameFamily||new RegExp('^(.+?),\\s*('+yList+')$').exec(g);
+      if(enclosed && new RegExp(y+',\\s*[\\p{L}][^;]*,\\s*'+y+'$','u').test(g)) {
+        warn('citation-delimiter',error,'multiple',p,p+g.length,'서로 다른 저자의 문헌 사이에 쉼표가 있습니다.','문헌 사이는 세미콜론으로 구분하세요.');
+        continue;
+      }
+      if(!m || new RegExp(y+'\\s*[,，]\\s*[^\\d\\s]').test(m[1])) {
+        warn('citation-delimiter',review,'multiple',p,enclosed?p+g.length:original.length,'저자·연도 또는 문헌 사이의 구분을 확인하세요.','괄호 안에서 저자와 연도는 쉼표, 서로 다른 문헌은 세미콜론으로 구분하세요.');
+        continue;
+      }
+      a=m[1].trim();years=m[2].split(/\s*,\s*/);end=p+a.length;
+      if(!a || /\d{4}/.test(a)){warn('citation-author',review,'citation',p,end,'저자 표기의 범위를 확인하세요.','각 문헌의 저자와 연도를 대조하세요.');continue;}
+      yearPos=enclosed?p+g.lastIndexOf(m[2]):offset+s.lastIndexOf(m[2]);
+      yearLength=m[2].length;
     }
-    if(!m || new RegExp(y+'\\s*[,，]\\s*[^\\d\\s]').test(m[1])) {
-      warn('citation-delimiter',review,'multiple',p,enclosed?p+g.length:original.length,'저자·연도 또는 문헌 사이의 구분을 확인하세요.','괄호 안에서 저자와 연도는 쉼표, 서로 다른 문헌은 세미콜론으로 구분하세요.');
-      continue;
-    }
-    const a=m[1].trim(), years=m[2].split(/\s*,\s*/), end=p+a.length;
-    if(!a || /\d{4}/.test(a)) {warn('citation-author',review,'citation',p,end,'저자 표기의 범위를 확인하세요.','각 문헌의 저자와 연도를 대조하세요.');continue;}
-    const yearPos=enclosed?p+g.lastIndexOf(m[2]):offset+s.lastIndexOf(m[2]);
-    if(years.every(v=>/^\d{4}[a-z]?$/.test(v)) && years.some((v,i)=>i && v<years[i-1])) {
-      warn('year-order',error,'multiple',yearPos,yearPos+m[2].length,'동일 저자의 연도가 시간순으로 배열되지 않았습니다.','기재된 연도를 오름차순으로 정렬하세요.',[...years].sort().join(', '));
+    if(!unclearYears && years.every(v=>/^\d{4}[a-z]?$/.test(v)) && years.some((v,i)=>i && v<years[i-1])) {
+      warn('year-order',error,'multiple',yearPos,yearPos+yearLength,'동일 저자의 연도가 시간순으로 배열되지 않았습니다.','기재된 연도를 오름차순으로 정렬하세요.',[...years].sort().join(', '));
     }
     if(new Set(years.map(v=>v.slice(0,4))).size<years.length &&
       (new Set(years).size<years.length || years.some(v=>v.length===4 && years.filter(w=>w.startsWith(v)).length>1))) {
-      warn('year-suffix',review,'multiple',yearPos,yearPos+m[2].length,'동일 연도 문헌의 구분 문자를 확인하세요.','서로 다른 문헌인지 확인하고 참고문헌과 같은 a, b, c를 사용하세요.');
+      warn('year-suffix',review,'multiple',yearPos,yearPos+yearLength,'동일 연도 문헌의 구분 문자를 확인하세요.','서로 다른 문헌인지 확인하고 참고문헌과 같은 a, b, c를 사용하세요.');
     }
     if(seen.has(a)) warn('author-repeat',error,'multiple',p,end,'동일 저자명이 반복되었습니다.','저자명 뒤에 여러 연도를 쉼표로 연결하세요.');
     seen.set(a,true);
     const ko=/^[가-힣]/.test(a), foreign=/^\p{Script=Latin}/u.test(a);
     if(!ko && !foreign) {warn('script',review,'citation',p,end,'저자명 표기 언어를 확인하세요.','원문과 대조하세요.');continue;}
-    const shortened=ko?/\s등$/.test(a):/\set al\.$/i.test(a);
-    const names=sameFamily?[a]:a.replace(/\s등$|\set al\.$/i,'').split(/\s*(?:,|&|\band\b)\s*/i).filter(Boolean);
-    const count=groups.length===1?Number(context.count)||0:0;
-    if(!shortened && foreign && names.length>=2 && !/&\s*[^,&]+$/.test(a)) {
+    const shortened=parsed?raw.short:ko?/\s등$/.test(a):/\set al\.$/i.test(a);
+    const names=parsed?raw.names:sameFamily?[a]:a.replace(/\s등$|\set al\.$/i,'').split(/\s*(?:,|&|\band\b)\s*/i).filter(Boolean);
+    const count=(context.history || groups.length===1)?Number(local.count)||0:0;
+    if(!parsed && !shortened && foreign && names.length>=2 && !/&\s*[^,&]+$/.test(a)) {
       warn('citation-amp',error,'count',p,end,'영문 복수저자 표기의 마지막 연결 기호를 확인하세요.','마지막 저자 앞에 &를 사용하세요.');
     }
     if(shortened && !count) warn('citation-count',review,'count',p,end,'축약 표기만으로 실제 저자 수를 알 수 없습니다.','원자료의 저자 수와 첫 인용·반복 인용 여부를 지정하세요.');
@@ -490,8 +537,12 @@ Kahperd.citation = function citation(original,context={}) {
     if(shortened && count>0 && count<3) warn('short-one-two',error,'count',p,end,'1·2인 문헌에 축약 표기가 있습니다.','원자료에서 저자명을 확인해 모두 기재하세요.');
     const effective=count||(shortened?0:names.length);
     if(effective>=3 && effective<=5) {
-      if(!context.occurrence) warn('citation-context',review,'count',p,end,'첫 인용인지 반복 인용인지 확인하세요.','첫 인용은 전원, 반복 인용은 첫 저자와 등 또는 et al.을 표기하세요.');
-      else if((context.occurrence==='first')===shortened) warn('citation-occurrence',error,'count',p,end,'3~5인 문헌의 인용 차례와 표기가 일치하지 않습니다.','첫 인용은 모든 저자를 표시하고 반복 인용은 축약하세요.');
+      if(!local.occurrence) warn('citation-context',review,'count',p,end,'첫 인용인지 반복 인용인지 확인하세요.',context.history?'입력한 본문보다 앞선 인용 이력은 알 수 없습니다. 첫 인용은 저자 전원, 반복 인용은 축약형을 씁니다.':'첫 인용은 전원, 반복 인용은 첫 저자와 등 또는 et al.을 표기하세요.');
+      else if((local.occurrence==='first')===shortened){
+        const fix=context.history && !shortened && !r.edits.some(e=>e.start<end && e.end>p)
+          ?names[0]+(ko?' 등':' et al.'):undefined;
+        warn('citation-occurrence',error,'count',p,end,'3~5인 문헌의 인용 차례와 표기가 일치하지 않습니다.','첫 인용은 모든 저자를 표시하고 반복 인용은 축약하세요.',fix);
+      }
     }
     keys.push({ko,key:names[0],p,end});
   }

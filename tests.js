@@ -35,6 +35,65 @@ if(typeof module!=='undefined') module.exports=ValidationSuite;
 
 {
   const {k,cases}=ValidationSuite;
+  const input=typeof require==='function'?require('./citation-input.js'):CitationInput;
+  function passage(name,source,expected,fromBeginning=false){
+    cases.push({name:'본문 자동 추출 · '+name,input:source,expected:JSON.stringify(expected),run(){
+      const entries=input.extract(source),contexts=input.history(entries,fromBeginning);
+      const actual=entries.map((entry,i)=>{
+        const r=k.citation(entry.text,{entry,history:contexts[i]});
+        const spans=source.slice(entry.start,entry.end)===entry.text &&
+          (i===0 || entries[i-1].end<=entry.start) &&
+          r.issues.every(issue=>issue.ref && issue.start>=0 && issue.end>=issue.start && issue.end<=entry.text.length);
+        return [entry.text,r.status,r.suggested,spans];
+      });
+      const target=expected.map(([text,status,suggestion=text])=>[text,status,suggestion,true]);
+      return {pass:JSON.stringify(actual)===JSON.stringify(target),actual:JSON.stringify(actual)};
+    }});
+  }
+  const huang='(Huang & Chiu, 2024)',cury='(Cury, Kennelly, & Howes, 2023)',short='Cury et al.(2023)';
+  passage('마라톤 연구 문단', '이러한 운영과정은 참가자에게 대회 경험을 제공하는 동시에 교통, 자원과 에너지의 소비, 폐기물 발생 등 환경적 영향을 수반한다(Huang & Chiu, 2024). 스포츠 분야에서도 이러한 환경적 영향을 줄이기 위한 관리와 운영은 환경적 지속가능성을 실현하기 위한 주요 과제로 논의되고 있다(Cury, Kennelly, & Howes, 2023).',[[huang,k.ok],[cury,k.review]]);
+  passage('국문 서술형과 조사의 경계','선행연구에서 홍길동(2024)은 효과를 확인했다.',[['홍길동(2024)',k.ok]]);
+  passage('서술형 국내외 복수 저자','따라서 김영수, 박영희(2019)와 Gide & Rist(1994)의 결과를 비교했다.',[['김영수, 박영희(2019)',k.ok],['Gide & Rist(1994)',k.ok]]);
+  passage('통계·연도·보충 설명 제외','참가자(N=300)의 평균(p=.05)을 비교했다(이하 참가자). 표본은 2024년에 수집했다. 기간(2024), (2019, 2020), (March 2024), (95% CI, 2019–2024).',[]);
+  passage('일반 설명에 든 숫자','참가자 수(총 2024명), 설문 조건(자료 수집, 2024년), 결과(2024)를 확인했다.',[]);
+  passage('통계와 인용이 섞인 문단','표본(N=300)은 유의했다(p=.05). 선행연구'+huang+'와 일치한다.',[[huang,k.ok]]);
+  const simultaneous='(김성태, 1978; 남해구, 1997; Brown & Smith, 1975; Lee, 1954)';
+  passage('동시 인용은 표현 한 개','관련 논의'+simultaneous+'가 있다.',[[simultaneous,k.ok]]);
+  passage('같은 저자의 복수 연도','연구(Price, 2015, 2004)를 비교했다.',[['(Price, 2015, 2004)',k.error,'(Price, 2004, 2015)']]);
+  passage('동일 연도 a b c 표시','홍길동(2016a, 2016b, 2016c)은 이를 검토했다.',[['홍길동(2016a, 2016b, 2016c)',k.ok]]);
+  passage('저자 연도 쉼표 누락','효과가 있었다(Huang & Chiu 2024).',[['(Huang & Chiu 2024)',k.error,huang]]);
+  passage('영문 저자 기호 및 연도 공백','효과가 있었다(Huang&Chiu,2024).',[['(Huang&Chiu,2024)',k.error,huang]]);
+  passage('영문 마지막 저자 앞 연결 기호','효과가 있었다(Huang and Chiu, 2024).',[['(Huang and Chiu, 2024)',k.error,huang]]);
+  passage('국문 저자 구두점과 조사','김영수,박영희(2019)의 연구 결과다.',[['김영수,박영희(2019)',k.error,'김영수, 박영희(2019)']]);
+  passage('문헌과 문헌 사이의 쉼표','검토했다(Kim, 2010, Lee, 2012).',[['(Kim, 2010, Lee, 2012)',k.error,'(Kim, 2010; Lee, 2012)']]);
+  passage('연도의 소속이 모호하면 원문 보존','자료(Price, 2016; 2018).',[['(Price, 2016; 2018)',k.review]]);
+  passage('전각 쉼표와 세미콜론','자료(Kim，2010；Lee，2012).',[['(Kim，2010；Lee，2012)',k.error,'(Kim, 2010; Lee, 2012)']]);
+  passage('줄바꿈과 여러 문단의 원문 위치','한 문단(Huang\n& Chiu,\n2024).\n\n다음 문단은 홍길동(2019)에 따른다.',[['(Huang\n& Chiu,\n2024)',k.ok],['홍길동(2019)',k.ok]]);
+  passage('독립 문단을 가로질러 서술형을 만들지 않음','이름을 열거했다. 홍길동\n\n(2024)',[]);
+  passage('여러 번 등장한 완전한 저자 목록',cury+'의 연구다.\n\n후속 연구'+cury+'와 같다.',[[cury,k.review],[cury,k.error,'(Cury et al., 2023)']]);
+  passage('완전한 인용 이후 영문 축약형',cury+' 이후 '+short+'에 따른다.',[[cury,k.review],[short,k.ok]]);
+  passage('일부 문단 첫 축약형은 인용 이력 미상',short+'의 결과다.',[[short,k.review]]);
+  passage('혼합 표기 공동저자의 연결 기호 보존','결과(김영수 & Smith, 2020)를 보았다.',[['(김영수 & Smith, 2020)',k.review]]);
+  passage('첫 인용부터 입력한 경우 전체 저자명 판정',cury+' 다음 '+short,[[cury,k.ok],[short,k.ok]],true);
+  passage('첫 인용부터 입력해도 앞선 축약형의 소속을 추정하지 않음',short+' 다음 '+cury,[[short,k.review],[cury,k.review]],true);
+  passage('첫 인용 범위라도 축약형 저자 수는 미상',short,[[short,k.review]],true);
+  passage('제10조 제8항 이니셜 예시 유지','관련 문헌( Volicer, K. A. 2016 ; Volicer, M. Y. 2016)을 보았다.',[['( Volicer, K. A. 2016 ; Volicer, M. Y. 2016)',k.ok]]);
+  passage('괄호 안의 중첩된 실제 인용','설명이 있다(결과는 일치했다 '+huang+').',[[huang,k.ok]]);
+  passage('불완전한 괄호와 통계 약어는 자동 수정하지 않음','근거(Huang & Chiu, 2024, 통계값(N 2024)과 범주(SD 2023).',[]);
+
+  passage('나중의 자료를 앞선 인용 이력으로 사용하지 않음',short+' 이후 '+cury+'를 검토했다.',[[short,k.review],[cury,k.review]]);
+  passage('국문 축약형의 반복 판정','김영수, 박영희, 홍길동(2020)은 이를 보였다. 김영수 등(2020)은 이를 보고했다.',[['김영수, 박영희, 홍길동(2020)',k.review],['김영수 등(2020)',k.ok]]);
+  const other='(Cury, Park, & Lee, 2023)';
+  passage('동일 첫 저자·연도에 공동저자 충돌',cury+'와 '+other+' 이후 '+short+'를 인용했다.',[[cury,k.review],[other,k.review],[short,k.review]]);
+  passage('다른 연도 접미사는 반복으로 간주하지 않음',cury.replace('2023','2023a')+'와 '+short.replace('2023','2023b'),[[cury.replace('2023','2023a'),k.review],[short.replace('2023','2023b'),k.review]]);
+  passage('동시 인용 내부의 개별 인용 이력',cury+' 이후 (Cury et al., 2023; Lee, 2020).',[[cury,k.review],['(Cury et al., 2023; Lee, 2020)',k.ok]]);
+  passage('괄호형 축약 기호 누락','인용(Smith et al 2020)을 제시했다.',[['(Smith et al 2020)',k.error,'(Smith et al., 2020)']]);
+  passage('6인 이상 전원 표기','결과(Kim, Lee, Park, Choi, Kang, & Shin, 2020)가 있다.',[['(Kim, Lee, Park, Choi, Kang, & Shin, 2020)',k.error]]);
+  passage('단순 저자표현 한 줄씩 자동 추출',huang+'\n홍길동(2019)',[[huang,k.ok],['홍길동(2019)',k.ok]]);
+}
+
+{
+  const {k,cases}=ValidationSuite;
   const sample='Huang, Y., & Chiu, W. (2024). Let’s run green! Impact of runners’ environmental consciousness on their green perceived quality and supportive intention at participatory sport events. International Journal of Sports Marketing and Sponsorship, 25(3), 541–559.';
   const title='Let’s run green! Impact of runners’ environmental consciousness on their green perceived quality and supportive intention at participatory sport events.';
   const journal='International Journal of Sports Marketing and Sponsorship, 25';
@@ -200,7 +259,7 @@ if(typeof module!=='undefined') module.exports=ValidationSuite;
   cite('본문 · 동일 연도 다른 문헌','(Price, 2016a, 2016b)',{},k.ok);
   cite('본문 · 동일 연도 구분 불확실','(Price, 2016, 2016)',{},k.review);
   cite('본문 · 동시 인용 순서','(최경수, 2001; 김성태, 1978)',{},k.error);
-  cite('본문 · 문헌 간 기호 확인','(김성태, 1978, 남해구, 1997)',{},k.error);
+  cite('본문 · 문헌 간 기호 확인','(김성태, 1978, 남해구, 1997)',{},k.error,'(김성태, 1978; 남해구, 1997)');
 }
 
 {
