@@ -73,8 +73,11 @@ function sampleCard(){
 $('ko').onclick=()=>{lang=0;sampleCard();};$('en').onclick=()=>{lang=1;sampleCard();};
 function switchMode(next){
   if(mode===next)return;mode=next;
-  const ref=mode==='ref';editor.hidden=!ref;citationEditor.hidden=ref;
-  $('refMode').setAttribute('aria-pressed',ref);$('citeMode').setAttribute('aria-pressed',!ref);
+  const ref=mode==='ref',cross=mode==='cross';editor.hidden=!ref;citationEditor.hidden=ref;
+  $('refMode').setAttribute('aria-pressed',ref);$('citeMode').setAttribute('aria-pressed',mode==='cite');$('crossMode').setAttribute('aria-pressed',cross);
+  $('standardForm').hidden=cross;$('crossForm').hidden=!cross;$('crossHelp').hidden=!cross;$('formatExample').hidden=cross;
+  $('results').hidden=true;
+  if(cross)return;
   $('citationModeField').hidden=ref;$('typeLabel').hidden=!ref;
   $('inputTitle').textContent=ref?'참고문헌 입력':'본문 인용 입력';
   $('inputTitle').htmlFor=activeInput().id;
@@ -91,6 +94,8 @@ function citationHints(){
 $('citationMode').onchange=()=>{citationHints();invalidate();};
 $('citationScope').onchange=invalidate;
 $('refMode').onclick=()=>switchMode('ref');$('citeMode').onclick=()=>switchMode('cite');
+$('crossMode').onclick=()=>switchMode('cross');
+CrossCheckUI.bind();
 editor.oninput=()=>{lastPasteStatus=null;invalidate();};citationEditor.oninput=invalidate;
 function insertClipboard(data){
   const pasted=RichInput.clipboard(data);

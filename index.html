@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#4134a5"><title>한국체육학회 참고문헌 검사기</title>
 <link rel="stylesheet" href="styles.css">
-<script defer src="reference-input.js"></script><script defer src="citation-input.js"></script><script defer src="rules/kahperd.js"></script><script defer src="rich-input.js"></script><script defer src="tests.js"></script><script defer src="app.js"></script>
+<script defer src="reference-input.js"></script><script defer src="citation-input.js"></script><script defer src="rules/kahperd.js"></script><script defer src="rich-input.js"></script><script defer src="cross-check.js"></script><script defer src="cross-check-ui.js"></script><script defer src="tests.js"></script><script defer src="app.js"></script>
 </head>
 <body>
 <header><div class="frame top"><a class="brand" href="#workspace"><span class="brandmark"><i data-icon="book"></i></span>문헌검토</a>
@@ -16,8 +16,8 @@
 <div class="art" aria-hidden="true"><div class="paper back"></div><div class="paper mid"></div><div class="paper front"><b>References</b><em></em><em></em><em></em></div><div class="seal"><i data-icon="check"></i></div></div></section>
 <section id="workspace">
 <div class="layout"><section class="panel editor">
-<div class="modebar"><button id="refMode" aria-pressed="true"><i data-icon="papers"></i>참고문헌 검사</button><button id="citeMode" aria-pressed="false"><i data-icon="quote"></i>본문 인용 검사</button></div>
-<div class="editorbody"><div class="fields"><label>학회 선택<select id="society"><option>한국체육학회</option><option disabled>다른 학회 · 추후 지원 예정</option></select></label><label id="typeLabel">문헌 유형<select id="type"></select></label></div>
+<div class="modebar"><button id="refMode" aria-pressed="true"><i data-icon="papers"></i>참고문헌 검사</button><button id="citeMode" aria-pressed="false"><i data-icon="quote"></i>본문 인용 검사</button><button id="crossMode" aria-pressed="false"><i data-icon="list"></i>인용·참고문헌 교차검사</button></div>
+<div class="editorbody" id="standardForm"><div class="fields"><label>학회 선택<select id="society"><option>한국체육학회</option><option disabled>다른 학회 · 추후 지원 예정</option></select></label><label id="typeLabel">문헌 유형<select id="type"></select></label></div>
 <div class="fields" id="citationModeField" hidden><label>입력 방식<select id="citationMode"><option value="passage">본문에서 인용 자동 추출</option><option value="direct">개별 인용 직접 입력</option></select></label><label id="scopeField">입력 범위<select id="citationScope"><option value="partial">일부 본문 · 이전 인용 이력 모름</option><option value="complete">논문의 첫 인용부터 입력함</option></select></label></div>
 <div class="fields" id="context" hidden><label>저자 수<select id="count"><option value="">알 수 없음</option><option value="1">1인</option><option value="2">2인</option><option value="3">3인</option><option value="4">4인</option><option value="5">5인</option><option value="6">6인 이상</option></select></label>
 <label>인용 차례<select id="occurrence"><option value="">알 수 없음</option><option value="first">첫 인용</option><option value="repeat">반복 인용</option></select></label></div>
@@ -26,8 +26,18 @@
 <div class="inputfoot"><span id="lineCount">0개 문헌</span><button id="clear" disabled><i data-icon="x"></i>비우기</button></div></div>
 <p id="joinNotice" class="muted" role="status" hidden></p>
 <p id="formatNotice" class="muted" role="status" hidden></p>
-<div class="actionrow"><span id="hint"><i data-icon="info"></i><span>줄바꿈은 자동으로 묶습니다. 문헌 사이에 빈 줄을 넣으면 구분됩니다.</span></span><button class="primary" id="inspect"><i data-icon="scan"></i><span>참고문헌 검사하기</span></button></div></div></section>
-<aside><section class="panel example"><div class="aside-heading"><span class="iconbox"><i data-icon="book"></i></span><h2>표기 예시</h2></div><div class="examplebar"><strong id="exampleType">학술지 논문</strong><div class="switch"><button id="ko" aria-pressed="true">국문</button><button id="en" aria-pressed="false">영문</button></div></div>
+<div class="actionrow"><span id="hint"><i data-icon="info"></i><span>줄바꿈은 자동으로 묶습니다. 문헌 사이에 빈 줄을 넣으면 구분됩니다.</span></span><button class="primary" id="inspect"><i data-icon="scan"></i><span>참고문헌 검사하기</span></button></div></div>
+<section id="crossForm" class="editorbody" hidden aria-label="본문 인용·참고문헌 교차검사">
+<div class="fields"><label>본문 입력 범위<select id="crossScope"><option value="partial">일부 본문</option><option value="full">논문 전체</option></select></label></div>
+<div class="input-heading"><label for="crossBody">본문 입력</label><button id="crossExample" class="small">가상 예시 불러오기</button></div>
+<div class="inputbox"><textarea id="crossBody" spellcheck="false" autocomplete="off" placeholder="논문의 본문 전체 또는 일부를 붙여넣으세요."></textarea></div>
+<div class="input-heading"><label for="crossRefs">참고문헌 목록</label></div>
+<div class="inputbox"><textarea id="crossRefs" spellcheck="false" autocomplete="off" placeholder="이 본문과 대조할 참고문헌 목록을 붙여넣으세요."></textarea></div>
+<p class="muted">누락은 입력한 목록을 기준으로 검사합니다. 일부 본문에서는 미인용 판정을 보류합니다.</p>
+<p class="muted">입력하신 본문과 참고문헌은 브라우저 내에서 처리되며 외부 서버로 전송하거나 별도로 저장하지 않습니다.</p>
+<div class="actionrow"><button id="crossInspect" class="primary">교차검사하기</button></div>
+</section></section>
+<aside><section id="crossHelp" class="panel example" hidden><h2>교차검사 기준</h2><p>저자와 연도로 본문 인용과 목록을 대조합니다. 제10조·제11조의 형식 판정은 각 검사 모드에서 확인하세요.</p><p class="muted">문헌의 실제 존재 여부, 서지정보의 정확성, 인용 내용의 일치 여부와 학술적 적절성은 원자료와 대조하세요.</p></section><section class="panel example" id="formatExample"><div class="aside-heading"><span class="iconbox"><i data-icon="book"></i></span><h2>표기 예시</h2></div><div class="examplebar"><strong id="exampleType">학술지 논문</strong><div class="switch"><button id="ko" aria-pressed="true">국문</button><button id="en" aria-pressed="false">영문</button></div></div>
 <blockquote id="example"></blockquote><a class="textlink" href="#guide">규정 자세히 보기<i data-icon="external"></i></a></section>
 <section class="panel legend"><div class="aside-heading"><span class="iconbox gray"><i data-icon="list"></i></span><h2>판정 안내</h2></div>
 <div class="legendrow"><span class="pill good">정상</span><span>형식상 발견된 문제 없음</span></div>

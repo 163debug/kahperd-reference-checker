@@ -34,6 +34,81 @@ const ValidationSuite = (() => {
 if(typeof module!=='undefined') module.exports=ValidationSuite;
 
 {
+  const cross=typeof require==='function'?require('./cross-check.js'):CrossCheck;
+  const {cases}=ValidationSuite;
+  const cite='(홍가람, 2024)', other='(박새봄, 2021)';
+  const make=(head,title='가상 관람 모형')=>head+'. '+title+'. 가상체육연구, 2(1), 1-9.';
+  const ko=make('홍가람(2024)'), pair=make('홍가람, 김하늘(2024)'), unused=make('윤다온(2022)');
+  const three=make('홍가람, 김하늘, 최가온(2024)');
+  const en=make('Miller, A., Wilson, B., & Taylor, C. (2023)');
+  const en2=make('Miller, A., Willow, R., & Taylor, C. (2023)');
+  function test(name,body,refs,expected,scope='partial',verify=()=>true){
+    const list=refs.join('\n');
+    cases.push({name:'교차검사 · '+name,input:body+'\n\n'+list,expected:JSON.stringify(expected),run(){
+      const r=cross.analyze(body,list,scope);
+      const pass=Object.entries(expected).every(([key,value])=>r.stats[key]===value) &&
+        r.rows.every(row=>row.locations.every(l=>body.slice(l.start,l.end)===l.text)) &&
+        r.failures.every(f=>body.slice(f.start,f.end)===f.text) && verify(r);
+      return {pass,actual:JSON.stringify(r.stats)};
+    }});
+  }
+  test('국문 한 명',cite,[ko],{matches:1,review:0});
+  test('국문 전원 서술형','홍가람, 김하늘(2024)은 가상 결과를 제시했다.',[pair],{matches:1,occurrences:1});
+  test('영문 성과 이니셜','(Miller, 2023)',[make('Miller, A. (2023)')],{matches:1});
+  test('영문 복수 저자','Miller & Wilson(2023)',[make('Miller, A., & Wilson, B. (2023)')],{matches:1});
+  test('전원 표기에서 저자 순서 보존','(Wilson & Miller, 2023)',[make('Miller, A., & Wilson, B. (2023)')],{matches:0,missing:0,unused:0,review:2},'full');
+  test('국문 등 축약','홍가람 등(2024)',[three],{matches:1});
+  test('영문 et al. 축약','(Miller et al., 2023)',[en],{matches:1});
+  test('2인 문헌을 축약으로 확정하지 않음','홍가람 등(2024)',[pair],{matches:0,missing:0});
+  test('축약 복수 후보','(Miller et al., 2023)',[en,en2],{matches:0,missing:0,unused:0},'full',r=>r.rows[0].candidates.length===2);
+  test('완전한 저자 정보 우선','(Miller, Wilson, & Taylor, 2023)',[en,en2],{matches:1,missing:0},'partial',r=>r.rows[0].candidates[0].index===1);
+  const abc=['a','b','c'].map(s=>make('홍가람(2024'+s+')','가상 연구 '+s));
+  test('연도 접미사 a b c','(홍가람, 2024a, 2024b, 2024c)',abc,{expressions:1,keys:3,occurrences:3,matches:3});
+  test('접미사 누락',cite,abc,{matches:0,missing:0,unused:0},'full',r=>r.rows[0].candidates.length===3);
+  test('접미사 불일치','(홍가람, 2024c)',abc.slice(0,2),{matches:0,missing:0});
+  test('동일 저자 복수 연도','(홍가람, 2022, 2024)',[ko,make('홍가람(2022)')],{occurrences:2,matches:2});
+  test('동시 인용 내부 문헌 수','(홍가람, 2024; 윤다온, 2022)',[ko,unused],{expressions:1,occurrences:2,matches:2});
+  test('반복되는 한 문헌과 위치',cite+'\n\n홍가람(2024)은 분석했다.',[ko],{expressions:2,keys:1,occurrences:2,matches:1},'partial',r=>r.rows[0].locations.length===2);
+  test('전원·축약형이 한 문헌으로 결합','(Miller, Wilson, & Taylor, 2023). Miller et al.(2023)',[en],{keys:2,matches:1,occurrences:2});
+  test('입력 목록에 없는 문헌',other,[ko],{missing:1,held:1});
+  test('부분 본문 기본값',cite,[ko,unused],{unused:0,held:1});
+  test('전체 본문의 미인용',cite,[ko,unused],{unused:1,held:0},'full');
+  test('동일 서지정보 중복',cite,[ko,ko,ko],{duplicates:2,references:3,matches:1,review:0},'full');
+  test('같은 저자와 연도, 다른 제목',cite,[ko,make('홍가람(2024)','다른 가상 제목')],{duplicates:0,matches:0,review:3});
+  test('같은 제목이지만 다른 페이지',cite,[ko,ko.replace('1-9','11-19')],{duplicates:0,matches:0});
+  test('불완전한 동일 헤더만으로 중복 확정 금지',cite,['홍가람(2024).','홍가람(2024).'],{duplicates:0,matches:0});
+  test('정보 없는 실패가 누락 차단',other,[ko,'','???'],{refOk:1,refFail:1,missing:0});
+  test('관련 없는 실패의 영향 제한',other,[ko,'','윤다온(연도 미상). 가상 조사.'],{refFail:1,missing:1});
+  test('연도만 식별 가능한 참고문헌','(홍가람, 2024)', ['(2024). 가상 무기명 자료.'],{refFail:1,missing:0});
+  test('미지의 본문 후보가 미인용 차단','일부 표기(???, ???)가 있다.',[ko],{citeFail:1,unused:0},'full');
+  test('일부 정보가 있는 추출 실패','가상 연구(홍가람, ???)가 있다.',[ko,unused],{citeFail:1,unused:1},'full');
+  test('불완전한 인용의 원문 보존','결과(Miller, 2023',[en],{citeFail:1,unused:0},'full');
+  test('구분 오류가 있어도 대응 가능','(Miller&Wilson 2023)',[make('Miller, A., & Wilson, B. (2023)')],{matches:1},'partial',r=>r.rows[0].locations[0].text==='(Miller&Wilson 2023)');
+  test('연도만 다른 경우 확정 보류','(홍가람, 2022)',[ko],{matches:0,missing:0,unused:0},'full');
+  test('원저·번역 연도', '(Miller, 2000/2023)',[en],{citeFail:1,unused:0},'full');
+  test('재인용','(Miller, 2000, as cited in Taylor, 2023)',[en],{matches:0,citeFail:1,unused:0},'full');
+  test('단체저자 정확한 이름','(가상체육학회, 2023)',[make('가상체육학회(2023)')],{matches:1});
+  test('명시적 n.d.','(Miller, n.d.)',[make('Miller, A. (n.d.)')],{matches:1});
+  test('출판 예정','(Miller, in press)',[make('Miller, A. (in press)')],{refFail:1,citeFail:1,missing:0});
+  test('여러 단어 성','(van Dalen, 2024)',[make('van Dalen, S. (2024)')],{matches:1});
+  const initials=[make('Miller, A. R. (2023)'),make('Miller, B. R. (2023)')];
+  test('같은 성 이니셜로 식별','(Miller, B. R., 2023)',initials,{matches:1},'partial',r=>r.rows[0].candidates[0].index===2);
+  test('이니셜 없는 동성 모호','(Miller, 2023)',initials,{matches:0,missing:0});
+  test('다수 저자 생략 참고문헌 보호','(Miller et al., 2023)',[make('Miller, A., Willow, R., ... Taylor, C. (2023)')],{refFail:1,missing:0});
+  test('한영 병기 인용 보호','홍가람(Hong)(2024)은 분석했다.',[ko],{citeFail:1,unused:0},'full');
+  test('통계와 단독 연도','응답자(N=300)를 검토했다(p=.05). (이하 참가자). (2024).',[ko],{expressions:0,citeFail:0,unused:1},'full');
+  test('빈 입력','',[],{expressions:0,references:0,missing:0,unused:0});
+  test('엔터 없이 붙인 전각 괄호 위치','가상 결과（홍가람，2024）를 비교했다.',[ko],{matches:1,citeFail:0});
+  test('연도 빈칸이 있어도 관련 문헌 보호','(Miller, )',[en,unused],{citeFail:1,unused:1},'full');
+  test('연도 없는 등 축약','(홍가람 등)',[three,unused],{citeFail:1,unused:1},'full');
+  test('영문 달과 연도는 일반 날짜','수집 기간(March 2024)이다.',[ko],{citeFail:0,expressions:0});
+  test('복수 문헌 중 완전히 불명인 항목은 연도를 제한하지 않음','(홍가람, 2024; ???)',[unused],{citeFail:1,unused:0},'full');
+  test('빈 목록에 누락 단정 금지',cite,[],{missing:0,review:1});
+  test('빈 본문에 미인용 단정 금지','',[ko],{unused:0,held:1},'full');
+  test('여러 줄 참고문헌의 위치',cite,[ko.replace(' 가상체육연구','\n가상체육연구'),unused],{references:2,matches:1},'partial',r=>r.units[0].lastLine===2 && r.units[1].firstLine===3);
+}
+
+{
   const {k,cases}=ValidationSuite;
   const input=typeof require==='function'?require('./citation-input.js'):CitationInput;
   function passage(name,source,expected,fromBeginning=false){

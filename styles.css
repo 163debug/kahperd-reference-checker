@@ -6,3 +6,14 @@ footer{margin-top:48px;border-top:1px solid var(--line)}footer .frame{min-height
 #entry{display:block;width:100%;min-height:195px;height:clamp(195px,24vh,290px);overflow:auto;resize:vertical;padding:17px;outline:none;line-height:1.75;font-size:1rem;white-space:pre-wrap;overflow-wrap:anywhere}
 #entry:empty:before{content:attr(data-placeholder);color:#7b8191;pointer-events:none}
 .format-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:5px 0;font-size:.92rem}
+.modebar{gap:16px;flex-wrap:wrap}
+#crossForm .input-heading{margin-top:18px}
+#crossForm textarea{min-height:128px;height:170px}
+#crossForm .inputbox:focus-within{outline:2px solid var(--violet);outline-offset:2px}
+.crossstats{grid-template-columns:repeat(auto-fit,minmax(126px,1fr))}
+@media(max-width:640px){
+  .modebar{gap:0;padding:0 10px;flex-wrap:nowrap}
+  .modebar button{flex:1;justify-content:center;text-align:center;padding:12px 3px;font-size:.85rem;line-height:1.4}
+  .modebar button i{display:none}
+  .crossstats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

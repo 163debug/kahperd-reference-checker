@@ -1,0 +1,77 @@
+name: Verify published cross-check
+on:
+  push:
+    branches: [main]
+    paths: ['*.js', '*.html', '*.css', 'rules/**', '.github/workflows/verify-cross-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployed files and use the public form in Chrome
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import time
+          from urllib.error import URLError
+          from urllib.request import Request, urlopen
+
+          site = 'https://163debug.github.io/kahperd-reference-checker/'
+          revision = '?v=' + os.environ['GITHUB_SHA']
+          assets = ['index.html', 'app.js', 'cross-check.js', 'cross-check-ui.js', 'tests.js']
+          for attempt in range(48):
+              try:
+                  if all(urlopen(site + f + revision, timeout=12).read() == Path(f).read_bytes() for f in assets):
+                      break
+              except URLError:
+                  pass
+              time.sleep(10)
+          else:
+              raise RuntimeError('The public files did not reach this revision.')
+
+          driver = subprocess.Popen(['chromedriver', '--port=9515'], stdout=subprocess.DEVNULL)
+          def command(path, data=None):
+              payload = json.dumps(data).encode() if data is not None else None
+              req = Request('http://127.0.0.1:9515' + path, data=payload, headers={'Content-Type':'application/json'})
+              return json.load(urlopen(req, timeout=40))['value']
+
+          try:
+              for attempt in range(30):
+                  try:
+                      if command('/status')['ready']:
+                          break
+                  except URLError:
+                      time.sleep(0.3)
+              options = {'binary':shutil.which('google-chrome'), 'args':['--headless', '--disable-dev-shm-usage']}
+              session = command('/session', {'capabilities':{'alwaysMatch':{'browserName':'chrome','goog:chromeOptions':options}}})
+              root = '/session/' + session['sessionId']
+              command(root + '/url', {'url':site + revision})
+              result = command(root + '/execute/sync', {'args':[], 'script':"""
+                  const id = key => document.getElementById(key);
+                  id('crossMode').click();
+                  id('crossExample').click();
+                  function inspect(scope) {
+                      id('crossScope').value = scope;
+                      id('crossInspect').click();
+                      return Object.fromEntries([...document.querySelectorAll('.crossstats > div')].map(
+                          cell => [cell.firstChild.textContent, Number(cell.lastChild.textContent)]));
+                  }
+                  return {partial:inspect('partial'), full:inspect('full')};
+              """})
+              for scope in ['partial', 'full']:
+                  row = result[scope]
+                  assert row['대응 참고문헌 일치'] == 1 and row['대응 참고문헌 누락'] == 1, result
+                  assert row['미인용 참고문헌'] == int(scope == 'full'), result
+              print(json.dumps(result, ensure_ascii=False))
+          finally:
+              driver.terminate()
+          PY
